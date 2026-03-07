@@ -16,11 +16,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "ti4-analysis" / "src"))
-
-from ti4_analysis.experiments.batch_experiment import run_multi_scale_experiment, create_joebrew_evaluator
-from ti4_analysis.experiments.analysis import (
+from ti4_analysis.evaluation.batch_experiment import run_multi_scale_experiment, create_joebrew_evaluator
+from ti4_analysis.evaluation.analysis import (
     analyze_experiment_results,
     test_spatial_blindness,
     find_smoking_gun_cases,
@@ -28,7 +25,7 @@ from ti4_analysis.experiments.analysis import (
     print_analysis_summary
 )
 from ti4_analysis.visualization.experiment_viz import create_all_experiment_visualizations
-from ti4_analysis.experiments.report_generator import generate_markdown_report
+from ti4_analysis.evaluation.report_generator import generate_markdown_report
 
 
 def main():
