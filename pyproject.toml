@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ti4-analysis"
+version = "0.1.0"
+description = "Scientific analysis and visualization tools for TI4 map balancing algorithms"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "TI4 Map Generator Project"}
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+    "plotly>=5.17",
+    "networkx>=3.1",
+    "pysal>=23.7",
+    "libpysal>=4.9",
+    "esda>=2.5",
+    "geopandas>=0.14",
+    "pandas>=2.0",
+    "jupyter>=1.0",
+    "ipykernel>=6.25",
+    "ipywidgets>=8.1",
+    "torch>=2.3",
+    "torchrl>=0.5.0",
+    "torch-geometric>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "hypothesis>=6.88",
+    "black>=23.9",
+    "ruff>=0.0.290",
+    "mypy>=1.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=ti4_analysis --cov-report=term-missing"
+markers = [
+    "minimal_validation: decisive TS-Hybrid vs. SATS-BO checks"
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
