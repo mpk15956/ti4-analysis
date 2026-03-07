@@ -12,6 +12,8 @@ from typing import Tuple, List, Optional, Dict
 import numpy as np
 
 from .balance_engine import TI4Map, get_home_values, get_balance_gap, can_swap_system
+from .map_topology import MapTopology
+from .fast_map_state import FastMapState
 from ..data.map_structures import Evaluator, MapSpace
 from ..spatial_stats.spatial_metrics import comprehensive_spatial_analysis
 
@@ -91,24 +93,31 @@ class MultiObjectiveScore:
 def evaluate_map_multiobjective(
     ti4_map: TI4Map,
     evaluator: Evaluator,
-    weights: Optional[Dict[str, float]] = None
+    weights: Optional[Dict[str, float]] = None,
+    fast_state: Optional[FastMapState] = None,
 ) -> MultiObjectiveScore:
     """
     Evaluate a map across all objectives.
 
     Args:
-        ti4_map: Map to evaluate
+        ti4_map: Map to evaluate (must reflect current tile placement for spatial metrics)
         evaluator: Balance evaluator
         weights: Objective weights (uses defaults if None)
+        fast_state: Optional pre-initialized FastMapState. When provided, balance_gap
+            is computed via vectorized matmul instead of BFS. ti4_map must be in sync
+            with fast_state (same tile placement) for spatial metrics to be correct.
 
     Returns:
         MultiObjectiveScore with all metrics
     """
-    # Basic balance
-    home_values = get_home_values(ti4_map, evaluator)
-    balance_gap = get_balance_gap(home_values)
+    # Basic balance — use fast path when available
+    if fast_state is not None:
+        balance_gap = fast_state.balance_gap()
+    else:
+        home_values = get_home_values(ti4_map, evaluator)
+        balance_gap = get_balance_gap(home_values)
 
-    # Spatial metrics
+    # Spatial metrics always read from ti4_map
     spatial_analysis = comprehensive_spatial_analysis(ti4_map, evaluator)
     morans_i = spatial_analysis['resource_clustering_morans_i']
     jains_index = spatial_analysis['jains_fairness_index']
@@ -145,14 +154,17 @@ def improve_balance_spatial(
     if random_seed is not None:
         random.seed(random_seed)
 
-    # Get swappable spaces
-    swappable_spaces = [s for s in ti4_map.get_system_spaces() if can_swap_system(s)]
+    # Build static topology once; balance_gap evaluations use fast matmul.
+    # swappable_spaces[s] corresponds to fast_state.system_value[s].
+    topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+    fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+    swappable_spaces = [ti4_map.spaces[i] for i in topology.swappable_indices]
 
     if len(swappable_spaces) < 2:
         raise ValueError("Not enough swappable spaces to optimize")
 
     # Initial evaluation
-    current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights)
+    current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
     best_score = current_score
     history = [(0, current_score)]
 
@@ -163,18 +175,20 @@ def improve_balance_spatial(
     max_no_improvement = 50  # Early stopping
 
     for i in range(1, iterations + 1):
-        # Randomly select two spaces to swap
-        space1, space2 = random.sample(swappable_spaces, 2)
+        # Pick two random swappable-position indices
+        s1, s2 = random.sample(range(len(swappable_spaces)), 2)
+        space1 = swappable_spaces[s1]
+        space2 = swappable_spaces[s2]
 
-        # Swap systems
+        # Apply swap to both fast state and ti4_map (spatial metrics read ti4_map)
+        fast_state.swap(s1, s2)
         space1.system, space2.system = space2.system, space1.system
 
         # Evaluate new configuration
-        new_score = evaluate_map_multiobjective(ti4_map, evaluator, weights)
+        new_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
 
         # Accept if improved (greedy hill-climbing)
         if new_score.composite_score() < current_score.composite_score():
-            # Keep the swap
             current_score = new_score
             no_improvement_count = 0
 
@@ -185,7 +199,8 @@ def improve_balance_spatial(
                     print(f"Iteration {i}: {new_score}")
 
         else:
-            # Revert the swap
+            # Revert both fast state and ti4_map
+            fast_state.swap(s1, s2)
             space1.system, space2.system = space2.system, space1.system
             no_improvement_count += 1
 

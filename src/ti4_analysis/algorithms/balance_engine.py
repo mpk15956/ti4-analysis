@@ -23,6 +23,8 @@ from ..algorithms.hex_grid import HexCoord, hex_distance, breadth_first_search, 
 from ..data.map_structures import (
     MapSpace, MapSpaceType, System, Evaluator, Anomaly, Wormhole
 )
+from .map_topology import MapTopology
+from .fast_map_state import FastMapState
 
 
 @dataclass
@@ -411,6 +413,11 @@ def improve_balance(
 
     This is a greedy hill-climbing algorithm that may find local minima.
 
+    Fitness evaluation uses a pre-computed static weight matrix (MapTopology)
+    and a vectorized numpy state (FastMapState). The BFS that previously ran
+    on every iteration runs exactly once at initialization; each subsequent
+    evaluation is a single C-level matrix-vector product.
+
     Args:
         ti4_map: TI4 map object (will be modified in-place)
         evaluator: Evaluation parameters
@@ -424,39 +431,40 @@ def improve_balance(
     if random_seed is not None:
         random.seed(random_seed)
 
-    home_values = get_home_values(ti4_map, evaluator)
-    balance_gap = get_balance_gap(home_values)
+    # Build static topology once; initialize vectorized state.
+    # swappable_spaces[s] corresponds to fast_state.system_value[s].
+    topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+    fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+    swappable_spaces = [ti4_map.spaces[i] for i in topology.swappable_indices]
 
-    history = [(0, balance_gap)]
-
-    # Get swappable systems
-    swappable_systems = [s for s in ti4_map.spaces if can_swap_system(s)]
-
-    if len(swappable_systems) < 2:
+    if len(swappable_spaces) < 2:
         print("Warning: Not enough swappable systems for balancing")
-        return balance_gap, history
+        balance_gap = get_balance_gap(get_home_values(ti4_map, evaluator))
+        return balance_gap, [(0, balance_gap)]
 
+    balance_gap = fast_state.balance_gap()
+    history = [(0, balance_gap)]
     swaps_accepted = 0
 
     for i in range(1, iterations + 1):
-        # Pick two random systems
-        space1, space2 = random.sample(swappable_systems, 2)
+        # Pick two random swappable-position indices
+        s1, s2 = random.sample(range(len(swappable_spaces)), 2)
 
-        # Swap systems
-        space1.system, space2.system = space2.system, space1.system
-
-        # Evaluate new balance
-        new_home_values = get_home_values(ti4_map, evaluator)
-        new_balance_gap = get_balance_gap(new_home_values)
+        # Trial swap in fast state (O(1))
+        fast_state.swap(s1, s2)
+        new_balance_gap = fast_state.balance_gap()
 
         if new_balance_gap < balance_gap:
-            # Accept swap
+            # Accept: apply the same swap to ti4_map (keeps it in sync)
+            swappable_spaces[s1].system, swappable_spaces[s2].system = (
+                swappable_spaces[s2].system,
+                swappable_spaces[s1].system,
+            )
             balance_gap = new_balance_gap
-            home_values = new_home_values
             swaps_accepted += 1
         else:
-            # Revert swap
-            space1.system, space2.system = space2.system, space1.system
+            # Revert fast state (swap is its own inverse)
+            fast_state.swap(s1, s2)
 
         history.append((i, balance_gap))
 
