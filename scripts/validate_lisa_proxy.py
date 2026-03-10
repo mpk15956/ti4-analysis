@@ -7,22 +7,21 @@ For a subset of seeds, re-runs each optimisation algorithm, captures the
 final map state, and applies conditional-permutation LISA to count
 significant H-H and L-L clusters at p < 0.05.
 
-If SA's continuous penalty eliminates more significant clusters than HC,
-the proxy is empirically justified.
+Supports multiprocessing via --workers (each seed is independent).
 
 Usage:
-    python scripts/validate_lisa_proxy.py --seeds 30 --output-dir output/lisa_validation/
-    python scripts/validate_lisa_proxy.py --seeds 30 --algorithms sa,hc --n-perms 999
+    python scripts/validate_lisa_proxy.py --seeds 30 --workers 16
+    python scripts/validate_lisa_proxy.py --seeds 30 --algorithms hc,sa,nsga2,ts
 """
 
 import argparse
 import csv
+import os
 import sys
 import time
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 
@@ -38,18 +37,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--players", type=int, default=6, help="Number of players")
     p.add_argument("--sa-iter", type=int, default=1000, help="SA iterations per seed")
     p.add_argument("--hc-iter", type=int, default=1000, help="HC iterations per seed")
+    p.add_argument("--ts-iter", type=int, default=None,
+                   help="TS max_evaluations (default: same as --sa-iter)")
     p.add_argument("--algorithms", type=str, default="hc,sa",
                    help="Comma-separated algorithms (hc, sa, nsga2, ts)")
+    p.add_argument("--workers", type=int, default=1,
+                   help="Parallel workers (default: 1 = sequential)")
     p.add_argument("--n-perms", type=int, default=999,
                    help="Permutations per location for significance test (default: 999)")
     p.add_argument("--alpha", type=float, default=0.05,
                    help="Significance threshold (default: 0.05)")
     p.add_argument("--output-dir", type=str, default="output",
                    help="Root output directory")
-    # SA hyperparameters
     p.add_argument("--sa-rate", type=float, default=0.80)
     p.add_argument("--sa-min-temp", type=float, default=0.01)
-    # NSGA-II hyperparameters
     p.add_argument("--nsga-gen", type=int, default=50)
     p.add_argument("--nsga-pop", type=int, default=20)
     p.add_argument("--nsga-blob", type=float, default=0.5)
@@ -139,7 +140,7 @@ def conditional_permutation_lisa(
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Worker (process-safe, self-contained)
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
@@ -148,10 +149,32 @@ CSV_FIELDS = [
     "elapsed_sec",
 ]
 
+_evaluator = None
 
-def main() -> int:
-    args = parse_args()
-    algos = {a.strip().lower() for a in args.algorithms.split(",")}
+
+def _init_pool():
+    """Pool initializer: pin BLAS threads and create the evaluator once per process."""
+    global _evaluator
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
+    _evaluator = create_joebrew_evaluator()
+
+
+def _validate_seed(job):
+    """Run all algorithms for one seed and perform permutation-tested LISA.
+
+    Returns list of row dicts (one per algorithm).
+    """
+    global _evaluator
+    (seed, algos_list, sa_iter, hc_iter, ts_iter,
+     sa_rate, sa_min_temp,
+     nsga_gen, nsga_pop, nsga_blob, nsga_mut, nsga_warm,
+     players, n_perms, alpha) = job
+
+    algos = set(algos_list)
+    evaluator = _evaluator
+    rng = np.random.default_rng(seed)
 
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.balance_engine import improve_balance
@@ -162,9 +185,100 @@ def main() -> int:
     from ti4_analysis.algorithms.tabu_search_optimizer import improve_balance_tabu
     from ti4_analysis.algorithms.map_topology import MapTopology
     from ti4_analysis.algorithms.fast_map_state import FastMapState
-    from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
 
-    evaluator = create_joebrew_evaluator()
+    rows = []
+
+    try:
+        initial_map = generate_random_map(
+            player_count=players, template_name="normal",
+            include_pok=True, random_seed=seed,
+        )
+    except Exception as exc:
+        print(f"  seed={seed}: map generation failed: {exc}", file=sys.stderr)
+        return rows
+
+    for algo in sorted(algos):
+        t0 = time.time()
+        try:
+            if algo == "hc":
+                m = initial_map.copy()
+                improve_balance(m, evaluator, iterations=hc_iter, random_seed=seed)
+                topo = MapTopology.from_ti4_map(m, evaluator)
+                fs = FastMapState.from_ti4_map(topo, m, evaluator)
+            elif algo == "sa":
+                m = initial_map.copy()
+                _, _ = improve_balance_spatial(
+                    m, evaluator, iterations=sa_iter,
+                    initial_acceptance_rate=sa_rate,
+                    min_temp=sa_min_temp,
+                    random_seed=seed, verbose=False,
+                )
+                topo = MapTopology.from_ti4_map(m, evaluator)
+                fs = FastMapState.from_ti4_map(topo, m, evaluator)
+            elif algo == "nsga2":
+                m = initial_map.copy()
+                front = nsga2_optimize(
+                    m, evaluator, generations=nsga_gen,
+                    population_size=nsga_pop,
+                    blob_fraction=nsga_blob,
+                    mutation_rate=nsga_mut,
+                    warm_fraction=nsga_warm,
+                    random_seed=seed, verbose=False,
+                )
+                best_map, best_score = min(front, key=lambda x: x[1].composite_score())
+                topo = MapTopology.from_ti4_map(best_map, evaluator)
+                fs = FastMapState.from_ti4_map(topo, best_map, evaluator)
+            elif algo == "ts":
+                m = initial_map.copy()
+                _, _ = improve_balance_tabu(
+                    m, evaluator, max_evaluations=ts_iter,
+                    random_seed=seed, verbose=False,
+                )
+                topo = MapTopology.from_ti4_map(m, evaluator)
+                fs = FastMapState.from_ti4_map(topo, m, evaluator)
+            else:
+                continue
+
+            score = evaluate_map_multiobjective(m if algo != "nsga2" else best_map,
+                                                evaluator, fast_state=fs)
+            z = fs.spatial_values()
+            W = topo.spatial_W
+
+            result = conditional_permutation_lisa(z, W, n_perms, alpha, rng)
+            elapsed = time.time() - t0
+
+            row = {
+                "seed": seed,
+                "algorithm": algo,
+                "elapsed_sec": round(elapsed, 2),
+                "composite_score": round(float(score.composite_score()), 4),
+                **{k: result[k] for k in CSV_FIELDS if k in result},
+            }
+            rows.append(row)
+
+            print(f"  seed={seed:4d}  {algo:<6s}  "
+                  f"sig={result['total_significant']}/{result['n_positions']}  "
+                  f"HH={result['n_sig_HH']} LL={result['n_sig_LL']}  "
+                  f"proxy={result['lisa_proxy']:.3f}  "
+                  f"t={elapsed:.1f}s")
+
+        except Exception as exc:
+            print(f"  seed={seed} {algo}: ERROR {exc}", file=sys.stderr)
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> int:
+    args = parse_args()
+    algos = {a.strip().lower() for a in args.algorithms.split(",")}
+    ts_iter = args.ts_iter if args.ts_iter is not None else args.sa_iter
+
+    # Initialize evaluator for main process
+    _init_pool()
 
     run_name = datetime.now().strftime("lisa_validation_%Y%m%d_%H%M%S")
     run_dir = Path(args.output_dir) / run_name
@@ -175,103 +289,49 @@ def main() -> int:
     print(f"Seeds       : {args.seeds} (base={args.base_seed})")
     print(f"Algorithms  : {', '.join(sorted(algos))}")
     print(f"Permutations: {args.n_perms}")
+    print(f"Workers     : {args.workers}")
     print(f"Output      : {run_dir}")
     print()
 
-    rng = np.random.default_rng(42)
     run_start = time.time()
 
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        writer.writeheader()
+    jobs = [
+        (seed, sorted(algos), args.sa_iter, args.hc_iter, ts_iter,
+         args.sa_rate, args.sa_min_temp,
+         args.nsga_gen, args.nsga_pop, args.nsga_blob, args.nsga_mut, args.nsga_warm,
+         args.players, args.n_perms, args.alpha)
+        for seed in range(args.base_seed, args.base_seed + args.seeds)
+    ]
 
-        for seed_offset in range(args.seeds):
-            seed = args.base_seed + seed_offset
-            seed_start = time.time()
+    pool = None
+    if args.workers > 1:
+        from multiprocessing import Pool
+        pool = Pool(args.workers, initializer=_init_pool)
 
-            try:
-                initial_map = generate_random_map(
-                    player_count=args.players, template_name="normal",
-                    include_pok=True, random_seed=seed,
-                )
-            except Exception as exc:
-                print(f"  seed={seed}: map generation failed: {exc}", file=sys.stderr)
-                continue
+    try:
+        all_rows: List[Dict] = []
+        mapper = pool.imap_unordered if pool else map
 
-            for algo in sorted(algos):
-                t0 = time.time()
-                try:
-                    if algo == "hc":
-                        m = initial_map.copy()
-                        improve_balance(m, evaluator, iterations=args.hc_iter, random_seed=seed)
-                        topo = MapTopology.from_ti4_map(m, evaluator)
-                        fs = FastMapState.from_ti4_map(topo, m, evaluator)
-                    elif algo == "sa":
-                        m = initial_map.copy()
-                        _, _ = improve_balance_spatial(
-                            m, evaluator, iterations=args.sa_iter,
-                            initial_acceptance_rate=args.sa_rate,
-                            min_temp=args.sa_min_temp,
-                            random_seed=seed, verbose=False,
-                        )
-                        topo = MapTopology.from_ti4_map(m, evaluator)
-                        fs = FastMapState.from_ti4_map(topo, m, evaluator)
-                    elif algo == "nsga2":
-                        m = initial_map.copy()
-                        front = nsga2_optimize(
-                            m, evaluator, generations=args.nsga_gen,
-                            population_size=args.nsga_pop,
-                            blob_fraction=args.nsga_blob,
-                            mutation_rate=args.nsga_mut,
-                            warm_fraction=args.nsga_warm,
-                            random_seed=seed, verbose=False,
-                        )
-                        best_map, best_score = min(front, key=lambda x: x[1].composite_score())
-                        topo = MapTopology.from_ti4_map(best_map, evaluator)
-                        fs = FastMapState.from_ti4_map(topo, best_map, evaluator)
-                    elif algo == "ts":
-                        m = initial_map.copy()
-                        _, _ = improve_balance_tabu(
-                            m, evaluator, max_evaluations=args.sa_iter,
-                            random_seed=seed, verbose=False,
-                        )
-                        topo = MapTopology.from_ti4_map(m, evaluator)
-                        fs = FastMapState.from_ti4_map(topo, m, evaluator)
-                    else:
-                        continue
+        for rows in mapper(_validate_seed, jobs):
+            all_rows.extend(rows)
 
-                    score = evaluate_map_multiobjective(m if algo != "nsga2" else best_map,
-                                                       evaluator, fast_state=fs)
-                    z = fs.spatial_values()
-                    W = topo.spatial_W
+        # Write CSV (sorted for deterministic output)
+        all_rows.sort(key=lambda r: (r["seed"], r["algorithm"]))
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            for row in all_rows:
+                writer.writerow(row)
 
-                    result = conditional_permutation_lisa(z, W, args.n_perms, args.alpha, rng)
-                    elapsed = time.time() - t0
-
-                    row = {
-                        "seed": seed,
-                        "algorithm": algo,
-                        "elapsed_sec": round(elapsed, 2),
-                        "composite_score": round(float(score.composite_score()), 4),
-                        **{k: result[k] for k in CSV_FIELDS if k in result},
-                    }
-                    writer.writerow(row)
-                    f.flush()
-
-                    print(f"  seed={seed:4d}  {algo:<6s}  "
-                          f"sig={result['total_significant']}/{result['n_positions']}  "
-                          f"HH={result['n_sig_HH']} LL={result['n_sig_LL']}  "
-                          f"proxy={result['lisa_proxy']:.3f}  "
-                          f"t={elapsed:.1f}s")
-
-                except Exception as exc:
-                    print(f"  seed={seed} {algo}: ERROR {exc}", file=sys.stderr)
+    finally:
+        if pool:
+            pool.close()
+            pool.join()
 
     total_time = time.time() - run_start
     print(f"\nTotal time: {total_time/60:.1f} min")
     print(f"Results: {csv_path}")
 
-    # Summary
     try:
         import pandas as pd
         df = pd.read_csv(csv_path)

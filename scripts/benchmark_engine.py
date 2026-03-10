@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """
-Monte Carlo benchmark: compare Greedy HC, Simulated Annealing, and NSGA-II
-on the same random TI4 map seeds.
+Monte Carlo benchmark: compare Greedy HC, Simulated Annealing, NSGA-II, and
+Tabu Search on the same random TI4 map seeds.
 
-All three algorithms receive an equal evaluation budget:
-    HC:     --hc-iter  evaluations
-    SA:     --sa-iter  evaluations  (cooling schedule spans exactly sa-iter steps)
-    NSGA-II: --nsga-gen × --nsga-pop evaluations
-
-Memory-safe: maps are deep-copied per algorithm and explicitly released after
-each seed.  Results stream to CSV so no data is lost on a crash or interruption.
+All algorithms receive an equal evaluation budget per budget level.
+Supports multiprocessing via --workers for embarrassingly parallel speedup
+(each seed is independent — no shared state between workers).
 
 Usage:
-    python scripts/benchmark_engine.py [--seeds N] [--hc-iter N] [--sa-iter N]
-        [--nsga-gen N] [--nsga-pop N] [--base-seed N] [--players N]
-        [--output-dir PATH] [--algorithms hc,sa,nsga2]
+    python scripts/benchmark_engine.py [--seeds N] [--budgets 1000,5000,10000]
+        [--workers 16] [--algorithms hc,sa,nsga2,ts] [--output-dir PATH]
 
 Outputs (inside --output-dir / benchmark_YYYYMMDD_HHMMSS/):
-    results.csv      — one row per (seed, algorithm)
+    results.csv      — one row per (seed, algorithm, budget)
     run_config.json  — CLI params + git hash for reproducibility
 """
 
@@ -25,13 +20,15 @@ import argparse
 import csv
 import gc
 import json
+import math
+import os
 import statistics
 import sys
 import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +36,7 @@ from typing import Dict, List, Optional
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Monte Carlo benchmark: HC vs SA vs NSGA-II")
+    p = argparse.ArgumentParser(description="Monte Carlo benchmark: HC vs SA vs NSGA-II vs TS")
     p.add_argument("--seeds",       type=int, default=100,    help="Number of random seeds")
     p.add_argument("--hc-iter",     type=int, default=1000,   help="HC iterations per seed")
     p.add_argument("--sa-iter",     type=int, default=1000,   help="SA iterations per seed")
@@ -50,15 +47,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir",  type=str, default="output", help="Root output directory")
     p.add_argument("--algorithms",  type=str, default="hc,sa,nsga2",
                    help="Comma-separated algorithms to run (hc, sa, nsga2, ts)")
-    # Tabu Search hyperparameters
+    p.add_argument("--workers",     type=int, default=1,
+                   help="Parallel workers (default: 1 = sequential)")
     p.add_argument("--ts-tenure",   type=int, default=None,
                    help="TS tabu tenure (default: ceil(sqrt(S)))")
-    # SA hyperparameters (from optimize_hyperparameters.py best_params.json)
     p.add_argument("--sa-rate",     type=float, default=0.80,
                    help="SA initial_acceptance_rate (default: 0.80)")
     p.add_argument("--sa-min-temp", type=float, default=0.01,
                    help="SA min_temp (default: 0.01)")
-    # NSGA-II hyperparameters
     p.add_argument("--nsga-blob",   type=float, default=0.5,
                    help="NSGA-II blob_fraction (default: 0.5)")
     p.add_argument("--nsga-mut",    type=float, default=0.05,
@@ -150,28 +146,56 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Worker (process-safe, self-contained)
 # ---------------------------------------------------------------------------
 
-def _run_seed(
-    seed, algos, evaluator, args, writer, accum, budget,
-    generate_random_map, improve_balance, improve_balance_spatial,
-    evaluate_map_multiobjective, nsga2_optimize, improve_balance_tabu,
-    MapTopology, FastMapState,
-    hc_iter, sa_iter, nsga_gen,
-):
-    """Run all algorithms for a single seed at a given budget level."""
+_evaluator = None
+
+
+def _init_pool():
+    """Pool initializer: pin BLAS threads and create the evaluator once per process."""
+    global _evaluator
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
+    _evaluator = create_joebrew_evaluator()
+
+
+def _run_seed(job):
+    """Run all algorithms for one (seed, budget) pair.
+
+    Takes a single tuple (for Pool.map compatibility) of primitives only.
+    Returns (ok: bool, rows: list[dict]).
+    """
+    global _evaluator
+    (seed, algos_list, budget, hc_iter, sa_iter, nsga_gen,
+     players, sa_rate, sa_min_temp, nsga_pop, nsga_blob,
+     nsga_mut, nsga_warm, ts_tenure) = job
+
+    algos = set(algos_list)
+
+    from ti4_analysis.algorithms.map_generator import generate_random_map
+    from ti4_analysis.algorithms.balance_engine import improve_balance
+    from ti4_analysis.algorithms.spatial_optimizer import (
+        improve_balance_spatial, evaluate_map_multiobjective,
+    )
+    from ti4_analysis.algorithms.nsga2_optimizer import nsga2_optimize
+    from ti4_analysis.algorithms.tabu_search_optimizer import improve_balance_tabu
+    from ti4_analysis.algorithms.map_topology import MapTopology
+    from ti4_analysis.algorithms.fast_map_state import FastMapState
+
+    evaluator = _evaluator
+    rows = []
     seed_start = time.time()
 
     try:
         initial_map = generate_random_map(
-            player_count=args.players,
+            player_count=players,
             template_name="normal",
             include_pok=True,
             random_seed=seed,
         )
 
-        # ── Greedy Hill Climbing ──────────────────────────────────
         if "hc" in algos:
             hc_map = initial_map.copy()
             t0 = time.time()
@@ -183,96 +207,68 @@ def _run_seed(
             topo = MapTopology.from_ti4_map(hc_map, evaluator)
             fs   = FastMapState.from_ti4_map(topo, hc_map, evaluator)
             hc_score = evaluate_map_multiobjective(hc_map, evaluator, fast_state=fs)
-            elapsed_hc = time.time() - t0
-
-            row = make_row(seed, "hc", hc_score, elapsed_hc, 1, budget)
-            writer.writerow(row)
-            accum["hc"]["composite_score"].append(row["composite_score"])
-            accum["hc"]["balance_gap"].append(row["balance_gap"])
-            accum["hc"]["elapsed_sec"].append(elapsed_hc)
-
+            rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget))
             del hc_map, topo, fs
 
-        # ── Simulated Annealing ───────────────────────────────────
         if "sa" in algos:
             sa_map = initial_map.copy()
             t0 = time.time()
             sa_score, _ = improve_balance_spatial(
                 sa_map, evaluator,
                 iterations=sa_iter,
-                initial_acceptance_rate=args.sa_rate,
-                min_temp=args.sa_min_temp,
+                initial_acceptance_rate=sa_rate,
+                min_temp=sa_min_temp,
                 random_seed=seed,
                 verbose=False,
             )
-            elapsed_sa = time.time() - t0
-
-            row = make_row(seed, "sa", sa_score, elapsed_sa, 1, budget)
-            writer.writerow(row)
-            accum["sa"]["composite_score"].append(row["composite_score"])
-            accum["sa"]["balance_gap"].append(row["balance_gap"])
-            accum["sa"]["elapsed_sec"].append(elapsed_sa)
-
+            rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget))
             del sa_map
 
-        # ── NSGA-II ───────────────────────────────────────────────
         if "nsga2" in algos:
             nsga_map = initial_map.copy()
             t0 = time.time()
             front = nsga2_optimize(
                 nsga_map, evaluator,
                 generations=nsga_gen,
-                population_size=args.nsga_pop,
-                blob_fraction=args.nsga_blob,
-                mutation_rate=args.nsga_mut,
-                warm_fraction=args.nsga_warm,
+                population_size=nsga_pop,
+                blob_fraction=nsga_blob,
+                mutation_rate=nsga_mut,
+                warm_fraction=nsga_warm,
                 random_seed=seed,
                 verbose=False,
             )
-            elapsed_nsga = time.time() - t0
-
             best_score = min(front, key=lambda x: x[1].composite_score())[1]
-            row = make_row(seed, "nsga2", best_score, elapsed_nsga, len(front), budget)
-            writer.writerow(row)
-            accum["nsga2"]["composite_score"].append(row["composite_score"])
-            accum["nsga2"]["balance_gap"].append(row["balance_gap"])
-            accum["nsga2"]["elapsed_sec"].append(elapsed_nsga)
-
+            rows.append(make_row(seed, "nsga2", best_score, time.time() - t0, len(front), budget))
             del nsga_map, front
 
-        # ── Tabu Search ───────────────────────────────────────────
         if "ts" in algos:
             ts_map = initial_map.copy()
             t0 = time.time()
             ts_score, _ = improve_balance_tabu(
                 ts_map, evaluator,
                 max_evaluations=budget,
-                tabu_tenure=args.ts_tenure,
+                tabu_tenure=ts_tenure,
                 random_seed=seed,
                 verbose=False,
             )
-            elapsed_ts = time.time() - t0
-
-            row = make_row(seed, "ts", ts_score, elapsed_ts, 1, budget)
-            writer.writerow(row)
-            accum["ts"]["composite_score"].append(row["composite_score"])
-            accum["ts"]["balance_gap"].append(row["balance_gap"])
-            accum["ts"]["elapsed_sec"].append(elapsed_ts)
-
+            rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget))
             del ts_map
 
-        return True
+        return True, rows
 
     except Exception as exc:
         elapsed_err = time.time() - seed_start
         print(f"seed={seed:4d}  ERROR after {elapsed_err:.1f}s: {exc}", file=sys.stderr)
-        for algo in algos:
-            writer.writerow(make_error_row(seed, algo, elapsed_err, budget))
-        return False
+        error_rows = [make_error_row(seed, algo, elapsed_err, budget) for algo in algos]
+        return False, error_rows
 
     finally:
         gc.collect()
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main() -> int:
     args = parse_args()
@@ -283,20 +279,8 @@ def main() -> int:
         print(f"ERROR: Unknown algorithms: {unknown}. Valid: {valid}", file=sys.stderr)
         return 1
 
-    # Lazy imports — heavy deps only needed at runtime
-    from ti4_analysis.algorithms.map_generator import generate_random_map
-    from ti4_analysis.algorithms.balance_engine import improve_balance
-    from ti4_analysis.algorithms.spatial_optimizer import (
-        improve_balance_spatial,
-        evaluate_map_multiobjective,
-    )
-    from ti4_analysis.algorithms.nsga2_optimizer import nsga2_optimize
-    from ti4_analysis.algorithms.tabu_search_optimizer import improve_balance_tabu
-    from ti4_analysis.algorithms.map_topology import MapTopology
-    from ti4_analysis.algorithms.fast_map_state import FastMapState
-    from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
-
-    evaluator = create_joebrew_evaluator()
+    # Initialize evaluator for the main process
+    _init_pool()
 
     # Determine budget schedule
     if args.budgets:
@@ -317,6 +301,7 @@ def main() -> int:
         "players":    args.players,
         "algorithms": sorted(algos),
         "budgets":    budget_levels,
+        "workers":    args.workers,
         "hc_iter":    args.hc_iter,
         "sa_iter":    args.sa_iter,
         "nsga_gen":   args.nsga_gen,
@@ -341,75 +326,94 @@ def main() -> int:
     print(f"Seeds         : {args.seeds}  (base_seed={args.base_seed})")
     print(f"Algorithms    : {', '.join(sorted(algos))}")
     print(f"Budget levels : {budget_levels}")
+    print(f"Workers       : {args.workers}")
     print()
 
     seeds_done = 0
     run_start = time.time()
+    total_seeds = args.seeds * len(budget_levels)
 
-    with open(csv_path, "w", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        csv_file.flush()
+    pool = None
+    if args.workers > 1:
+        from multiprocessing import Pool
+        pool = Pool(args.workers, initializer=_init_pool)
 
-        for budget in budget_levels:
-            # Derive per-algorithm iterations from budget
-            if args.budgets:
-                hc_iter  = budget
-                sa_iter  = budget
-                nsga_gen = max(1, budget // args.nsga_pop)
-            else:
-                hc_iter  = args.hc_iter
-                sa_iter  = args.sa_iter
-                nsga_gen = args.nsga_gen
+    try:
+        with open(csv_path, "w", newline="") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            csv_file.flush()
 
-            actual_nsga_evals = nsga_gen * args.nsga_pop
+            for budget in budget_levels:
+                if args.budgets:
+                    hc_iter  = budget
+                    sa_iter  = budget
+                    nsga_gen = max(1, budget // args.nsga_pop)
+                else:
+                    hc_iter  = args.hc_iter
+                    sa_iter  = args.sa_iter
+                    nsga_gen = args.nsga_gen
 
-            print(f"── Budget {budget:,} ─────────────────────────────────────")
-            print(f"   HC={hc_iter}, SA={sa_iter}, "
-                  f"NSGA-II={nsga_gen}gen × {args.nsga_pop}pop = {actual_nsga_evals}")
+                actual_nsga_evals = nsga_gen * args.nsga_pop
 
-            accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+                print(f"── Budget {budget:,} ─────────────────────────────────────")
+                print(f"   HC={hc_iter}, SA={sa_iter}, "
+                      f"NSGA-II={nsga_gen}gen × {args.nsga_pop}pop = {actual_nsga_evals}")
 
-            for seed_offset in range(args.seeds):
-                seed = args.base_seed + seed_offset
-                seed_start = time.time()
+                accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
-                ok = _run_seed(
-                    seed, algos, evaluator, args, writer, accum, budget,
-                    generate_random_map, improve_balance, improve_balance_spatial,
-                    evaluate_map_multiobjective, nsga2_optimize,
-                    improve_balance_tabu, MapTopology, FastMapState,
-                    hc_iter, sa_iter, nsga_gen,
-                )
-                csv_file.flush()
+                jobs = [
+                    (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
+                     args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
+                     args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure)
+                    for seed in range(args.base_seed, args.base_seed + args.seeds)
+                ]
 
-                if ok:
-                    seeds_done += 1
+                budget_done = 0
+                budget_start = time.time()
+                mapper = pool.imap_unordered if pool else map
 
-                elapsed_total = time.time() - run_start
-                seed_elapsed = time.time() - seed_start
-                avg = elapsed_total / max(1, seeds_done)
-                total_seeds = args.seeds * len(budget_levels)
-                remaining = (total_seeds - seeds_done) * avg
+                for ok, rows in mapper(_run_seed, jobs):
+                    for row in rows:
+                        writer.writerow(row)
+                    csv_file.flush()
 
-                print(
-                    f"  seed={seed:4d}  "
-                    + ("" if "hc"    not in algos else f"hc={accum['hc']['composite_score'][-1]:.3f}  ")
-                    + ("" if "sa"    not in algos else f"sa={accum['sa']['composite_score'][-1]:.3f}  ")
-                    + ("" if "nsga2" not in algos else f"nsga2={accum['nsga2']['composite_score'][-1]:.3f}  ")
-                    + ("" if "ts"    not in algos else f"ts={accum['ts']['composite_score'][-1]:.3f}  ")
-                    + f"t={seed_elapsed:.1f}s  eta={remaining/60:.1f}min"
-                )
+                    if ok:
+                        seeds_done += 1
+                        for row in rows:
+                            algo = row["algorithm"]
+                            accum[algo]["composite_score"].append(row["composite_score"])
+                            accum[algo]["balance_gap"].append(row["balance_gap"])
+                            accum[algo]["elapsed_sec"].append(row["elapsed_sec"])
 
-            print_summary(accum)
+                    budget_done += 1
+                    elapsed_budget = time.time() - budget_start
+                    avg = elapsed_budget / budget_done
+                    remaining = (len(jobs) - budget_done) * avg
+                    seed_val = rows[0]["seed"] if rows else "?"
 
-    total_time = time.time() - run_start
-    print()
-    print(f"Seeds completed : {seeds_done}/{args.seeds * len(budget_levels)}")
-    print(f"Total time      : {total_time/60:.1f} min")
-    print(f"Results CSV     : {csv_path}")
+                    parts = [f"  seed={seed_val:>4}"]
+                    for a in ("hc", "sa", "nsga2", "ts"):
+                        matching = [r for r in rows if r["algorithm"] == a]
+                        if matching and not math.isnan(matching[0]["composite_score"]):
+                            parts.append(f"{a}={matching[0]['composite_score']:.3f}")
+                    parts.append(f"eta={remaining/60:.1f}min")
+                    print("  ".join(parts))
 
-    return 0 if seeds_done == args.seeds * len(budget_levels) else 1
+                print_summary(accum)
+
+        total_time = time.time() - run_start
+        print()
+        print(f"Seeds completed : {seeds_done}/{total_seeds}")
+        print(f"Total time      : {total_time/60:.1f} min")
+        print(f"Results CSV     : {csv_path}")
+
+        return 0 if seeds_done == total_seeds else 1
+
+    finally:
+        if pool:
+            pool.close()
+            pool.join()
 
 
 if __name__ == "__main__":

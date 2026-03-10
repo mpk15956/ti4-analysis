@@ -58,6 +58,8 @@ def parse_args() -> argparse.Namespace:
                    help="Number of players (default: 6)")
     p.add_argument("--output-dir",  type=str, default="output",
                    help="Root output directory (default: output)")
+    p.add_argument("--workers",     type=int, default=1,
+                   help="Optuna n_jobs for parallel trial evaluation (default: 1)")
     p.add_argument("--study-name",  type=str, default=None,
                    help="Optuna study name (enables resume via --storage)")
     p.add_argument("--storage",     type=str, default=None,
@@ -263,7 +265,8 @@ def main() -> int:
             )
 
         run_start = time.time()
-        study.optimize(obj, n_trials=args.trials, callbacks=[csv_callback], n_jobs=1)
+        study.optimize(obj, n_trials=args.trials, callbacks=[csv_callback],
+                       n_jobs=args.workers)
 
     # Write best_params.json
     best_params_path = run_dir / "best_params.json"
