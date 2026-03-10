@@ -13,7 +13,10 @@ from ti4_analysis.data.map_structures import (
 from ti4_analysis.algorithms.balance_engine import TI4Map
 from ti4_analysis.algorithms.map_topology import MapTopology
 from ti4_analysis.algorithms.fast_map_state import FastMapState
-from ti4_analysis.algorithms.spatial_optimizer import evaluate_map_multiobjective
+from ti4_analysis.algorithms.spatial_optimizer import (
+    evaluate_map_multiobjective,
+    MultiObjectiveScore,
+)
 from ti4_analysis.algorithms.nsga2_optimizer import (
     Individual,
     _build_lookups,
@@ -202,18 +205,18 @@ class TestOx1Crossover:
 
 # ── NSGA-II sorting tests ─────────────────────────────────────────────────────
 
-def _make_individual(gap, morans, lisa):
+def _make_individual(gap, morans, lisa, jains=0.9):
     """Construct a minimal Individual with the given objective values."""
     score = object.__new__(type('MockScore', (), {
         'balance_gap': gap,
         'morans_i': morans,
         'lisa_penalty': lisa,
-        'jains_index': 0.9,
+        'jains_index': jains,
     }))
     score.balance_gap = gap
     score.morans_i = morans
     score.lisa_penalty = lisa
-    score.jains_index = 0.9
+    score.jains_index = jains
     ind = object.__new__(Individual)
     ind.score = score
     ind.map = None
@@ -226,23 +229,27 @@ def _make_individual(gap, morans, lisa):
 class TestNsga2Dominance:
 
     def test_clearly_better_dominates(self):
-        """Individual better on all 3 objectives dominates the other."""
-        a = _make_individual(gap=1.0, morans=0.1, lisa=0.5)
-        b = _make_individual(gap=2.0, morans=0.3, lisa=1.0)
+        """Individual better on all 3 objectives (1−JFI, |I|, LISA) dominates."""
+        # a: JFI=0.9 (1−JFI=0.1), morans=0.1, lisa=0.5 — better on all
+        # b: JFI=0.7 (1−JFI=0.3), morans=0.3, lisa=1.0 — worse on all
+        a = _make_individual(gap=1.0, morans=0.1, lisa=0.5, jains=0.9)
+        b = _make_individual(gap=2.0, morans=0.3, lisa=1.0, jains=0.7)
         assert _nsga2_dominates(a, b)
         assert not _nsga2_dominates(b, a)
 
     def test_no_domination_when_tradeoff(self):
         """Neither dominates when one is better on one objective, worse on another."""
-        a = _make_individual(gap=1.0, morans=0.5, lisa=1.0)
-        b = _make_individual(gap=2.0, morans=0.1, lisa=0.5)
+        # a: better JFI and morans, worse lisa
+        # b: worse JFI and morans, better lisa
+        a = _make_individual(gap=1.0, morans=0.1, lisa=1.0, jains=0.9)
+        b = _make_individual(gap=2.0, morans=0.5, lisa=0.1, jains=0.7)
         assert not _nsga2_dominates(a, b)
         assert not _nsga2_dominates(b, a)
 
     def test_identical_does_not_dominate(self):
         """An individual does not dominate an equal individual."""
-        a = _make_individual(gap=1.0, morans=0.2, lisa=0.5)
-        b = _make_individual(gap=1.0, morans=0.2, lisa=0.5)
+        a = _make_individual(gap=1.0, morans=0.2, lisa=0.5, jains=0.9)
+        b = _make_individual(gap=1.0, morans=0.2, lisa=0.5, jains=0.9)
         assert not _nsga2_dominates(a, b)
 
 
@@ -278,12 +285,33 @@ class TestNonDominatedSort:
         assert id(dominated) not in rank0_ids
 
     def test_all_non_dominated_all_rank0(self):
-        """When no individual dominates any other, all must be rank-0."""
-        individuals = [
-            _make_individual(1.0, 0.5, 0.9),
-            _make_individual(2.0, 0.1, 0.7),
-            _make_individual(3.0, 0.4, 0.1),
-        ]
+        """
+        Perfect 3-axis symmetry: each individual is the absolute best at
+        exactly one objective and tied for worst on the other two.
+        No dominance relationship can exist → all must be rank-0.
+
+        Geometry (cost space, all minimized):
+          score0: 1-JFI=0.1 (best), |I|=0.9 (worst), LISA=0.9 (worst)
+          score1: 1-JFI=0.9 (worst), |I|=0.1 (best), LISA=0.9 (worst)
+          score2: 1-JFI=0.9 (worst), |I|=0.9 (worst), LISA=0.1 (best)
+        Each beats the others on exactly one axis → no dominance possible.
+        """
+        score0 = MultiObjectiveScore(balance_gap=0, morans_i=0.9, jains_index=0.9,
+                                     lisa_penalty=0.9, n_spatial=37)  # best JFI
+        score1 = MultiObjectiveScore(balance_gap=0, morans_i=0.1, jains_index=0.1,
+                                     lisa_penalty=0.9, n_spatial=37)  # best |I|
+        score2 = MultiObjectiveScore(balance_gap=0, morans_i=0.9, jains_index=0.1,
+                                     lisa_penalty=0.1, n_spatial=37)  # best LISA
+
+        individuals = []
+        for score in [score0, score1, score2]:
+            ind = object.__new__(Individual)
+            ind.score = score
+            ind.map = ind.fast_state = None
+            ind.rank = 0
+            ind.crowding_distance = 0.0
+            individuals.append(ind)
+
         fronts = _fast_nondominated_sort(individuals)
         assert len(fronts[0]) == 3
 

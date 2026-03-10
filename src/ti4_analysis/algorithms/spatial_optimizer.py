@@ -1,10 +1,19 @@
 """
 Multi-objective spatial optimizer for TI4 maps.
 
-Implements Pareto optimization that balances BOTH basic balance metrics
-(balance_gap) AND spatial distribution metrics (Moran's I, Jain's Index).
+Implements Pareto optimization across three canonical objectives:
 
-This addresses the "spatial blindness" problem identified in the experimental research.
+    1. 1 − jains_index  (minimize) — distributive equity (Jain's Fairness Index)
+    2. abs(morans_i)    (minimize) — global spatial clustering
+    3. lisa_penalty     (minimize) — local H-H / L-L cluster penalty
+
+Decomposition: JFI captures the *magnitude* of resource disparity (distributive
+justice); Moran's I and LISA capture the *spatial topology* of that disparity
+(spatial justice). These are orthogonal analytical dimensions. Within the
+distributive axis, JFI replaces balance_gap (max−min range) as the axiomatic,
+scale-invariant measure recommended by peer-reviewed literature.
+
+balance_gap is retained as a stored attribute for display and reporting only.
 """
 
 import math
@@ -24,9 +33,10 @@ class MultiObjectiveScore:
     Container for multi-objective fitness scores.
 
     A map's quality is evaluated across multiple dimensions:
-    - Balance gap (lower is better)
+    - Balance gap (lower is better) — display only
     - Spatial clustering / Moran's I (lower absolute value is better)
-    - Accessibility fairness / Jain's Index (higher is better)
+    - Multi-Jain Fairness Index (higher is better): min(JFI_resources, JFI_influence)
+    - LISA penalty (lower is better)
     """
 
     def __init__(
@@ -35,62 +45,78 @@ class MultiObjectiveScore:
         morans_i: float,
         jains_index: float,
         lisa_penalty: float = 0.0,
-        weights: Optional[Dict[str, float]] = None
+        n_spatial: int = 1,
+        weights: Optional[Dict[str, float]] = None,
+        jfi_resources: float = 1.0,
+        jfi_influence: float = 1.0,
     ):
-        self.balance_gap = balance_gap
+        self.balance_gap = balance_gap   # retained for display only
         self.morans_i = morans_i
         self.jains_index = jains_index
+        self.jfi_resources = jfi_resources
+        self.jfi_influence = jfi_influence
         self.lisa_penalty = lisa_penalty
+        self.n_spatial = max(1, n_spatial)  # guard against zero-division
 
-        # Default weights
+        # Weights sum to 1.0 for interpretability (ratios 5 : 5 : 3).
         if weights is None:
             weights = {
-                'balance_gap': 1.0,
-                'morans_i': 0.5,
-                'jains_index': -0.5,   # Negative because we want to maximize Jain's
-                'lisa_penalty': 0.3,   # Penalize H-H / L-L spatial clusters
+                'morans_i':     5.0 / 13.0,
+                'jains_index':  5.0 / 13.0,
+                'lisa_penalty': 3.0 / 13.0,
             }
 
         self.weights = weights
 
     def composite_score(self) -> float:
         """
-        Calculate weighted composite score.
+        Scalar objective for SA and HC (Weighted Sum Model). Lower is better.
 
-        Lower is better (minimize this).
+        All three terms are normalized to [0, 1] before weighting:
+          - abs(morans_i)   ∈ [0, 1]   (theoretical for row-standardized W)
+          - 1 − jains_index ∈ [0, 1]   (JFI ∈ [1/H, 1])
+          - lisa_norm        ∈ [0, 1]   (see derivation below)
+
+        LISA normalization derivation:
+            local_I[i] = z_dev[i] * (W @ z_dev)[i] / m2  (variance-normalized).
+            For row-standardized W, max single local_I = n − 1 (one extreme
+            value surrounded by identical-deviation neighbours). At most n
+            positions contribute positively, so:
+                sum_positive_local_I  ≤  n × (n − 1)
+            Dividing by n × (n − 1) maps the LISA penalty to [0, 1].
+
+        Weights sum to 1.0 (ratios 5 : 5 : 3 ≈ 0.385 : 0.385 : 0.231).
         """
-        score = (
-            self.weights['balance_gap'] * self.balance_gap +
-            self.weights['morans_i'] * abs(self.morans_i) +
-            self.weights['jains_index'] * (1.0 - self.jains_index) +  # Convert max to min
-            self.weights.get('lisa_penalty', 0.3) * self.lisa_penalty
+        n = self.n_spatial
+        lisa_divisor = max(1, n * (n - 1))
+        lisa_norm = self.lisa_penalty / lisa_divisor
+        return (
+            self.weights['morans_i']     * abs(self.morans_i) +
+            self.weights['jains_index']  * (1.0 - self.jains_index) +
+            self.weights['lisa_penalty'] * lisa_norm
         )
-        return score
 
     def dominates(self, other: 'MultiObjectiveScore') -> bool:
         """
-        Check if this score Pareto-dominates another score.
+        Pareto dominance over the canonical 3 objectives (all minimized):
+          1 − jains_index, abs(morans_i), lisa_penalty.
 
-        Dominates if it's better or equal on all objectives, and strictly better on at least one.
+        Returns True if self is better-or-equal on all and strictly better on at least one.
         """
-        better_gap = self.balance_gap <= other.balance_gap
-        better_morans = abs(self.morans_i) <= abs(other.morans_i)
-        better_jains = self.jains_index >= other.jains_index
+        a_jfi = 1.0 - self.jains_index;    b_jfi = 1.0 - other.jains_index
+        a_mi  = abs(self.morans_i);         b_mi  = abs(other.morans_i)
+        a_lp  = self.lisa_penalty;          b_lp  = other.lisa_penalty
 
-        strictly_better_gap = self.balance_gap < other.balance_gap
-        strictly_better_morans = abs(self.morans_i) < abs(other.morans_i)
-        strictly_better_jains = self.jains_index > other.jains_index
-
-        all_better_or_equal = better_gap and better_morans and better_jains
-        at_least_one_strictly_better = strictly_better_gap or strictly_better_morans or strictly_better_jains
-
-        return all_better_or_equal and at_least_one_strictly_better
+        all_leq = (a_jfi <= b_jfi) and (a_mi <= b_mi) and (a_lp <= b_lp)
+        any_lt  = (a_jfi <  b_jfi) or  (a_mi <  b_mi) or  (a_lp <  b_lp)
+        return all_leq and any_lt
 
     def __str__(self) -> str:
         return (
             f"Gap={self.balance_gap:.2f}, "
             f"Moran's I={self.morans_i:+.3f}, "
-            f"Jain's={self.jains_index:.3f}, "
+            f"Jain's={self.jains_index:.3f} "
+            f"(R={self.jfi_resources:.3f}, I={self.jfi_influence:.3f}), "
             f"LISA={self.lisa_penalty:.3f}, "
             f"Composite={self.composite_score():.2f}"
         )
@@ -118,19 +144,29 @@ def evaluate_map_multiobjective(
     """
     if fast_state is not None:
         # All metrics from vectorized fast paths — no TI4Map traversal needed.
-        balance_gap = fast_state.balance_gap()
-        morans_i = fast_state.morans_i()
-        jains_index = fast_state.jains_index()
-        lisa_penalty = fast_state.lisa_penalty()
+        balance_gap    = fast_state.balance_gap()
+        morans_i       = fast_state.morans_i()
+        jains_index    = fast_state.jains_index()
+        jfi_resources  = fast_state.jfi_resources()
+        jfi_influence  = fast_state.jfi_influence()
+        lisa_penalty   = fast_state.lisa_penalty()
+        n_spatial      = len(fast_state.spatial_values())
     else:
+        # Slow path: per-dimension JFI unavailable; fall back to combined scalar.
         home_values = get_home_values(ti4_map, evaluator)
         balance_gap = get_balance_gap(home_values)
         spatial_analysis = comprehensive_spatial_analysis(ti4_map, evaluator)
-        morans_i = spatial_analysis['resource_clustering_morans_i']
-        jains_index = spatial_analysis['jains_fairness_index']
-        lisa_penalty = 0.0  # comprehensive_spatial_analysis does not expose LISA penalty
+        morans_i       = spatial_analysis['resource_clustering_morans_i']
+        jains_index    = spatial_analysis['jains_fairness_index']
+        jfi_resources  = jains_index
+        jfi_influence  = jains_index
+        lisa_penalty   = 0.0
+        n_spatial      = 1
 
-    return MultiObjectiveScore(balance_gap, morans_i, jains_index, lisa_penalty, weights)
+    return MultiObjectiveScore(
+        balance_gap, morans_i, jains_index, lisa_penalty, n_spatial, weights,
+        jfi_resources=jfi_resources, jfi_influence=jfi_influence,
+    )
 
 
 def improve_balance_spatial(
@@ -161,7 +197,7 @@ def improve_balance_spatial(
         ti4_map: Map to optimize (modified in-place)
         evaluator: Balance evaluator
         iterations: Maximum number of swap attempts
-        weights: Objective weights (balance_gap, morans_i, jains_index, lisa_penalty)
+        weights: Objective weights (morans_i, jains_index, lisa_penalty; sum to 1.0)
         random_seed: Random seed for reproducibility
         verbose: Print progress messages
         cooling_rate: Geometric cooling factor α (T_{k+1} = α·T_k)

@@ -4,14 +4,15 @@ NSGA-II optimizer with BFS-PMX crossover for TI4 map balance.
 Generates a diverse Pareto front of maps representing different trade-offs
 across three objectives:
 
-    1. balance_gap    (minimize) — scalar resource equality
-    2. abs(morans_i)  (minimize) — global spatial clustering
-    3. lisa_penalty   (minimize) — local H-H / L-L cluster penalty
+    1. 1 − jains_index  (minimize) — distributive equity (Jain's Fairness Index)
+    2. abs(morans_i)    (minimize) — global spatial clustering
+    3. lisa_penalty     (minimize) — local H-H / L-L cluster penalty
 
-jains_index is intentionally excluded from Pareto sorting: it is collinear
-with balance_gap (both measure resource variance), and including a 4th
-objective would collapse rank discrimination in Generation 0 (the
-"many-objective curse" — most individuals become non-dominated).
+Decomposition: JFI captures the *magnitude* of resource disparity (distributive
+justice); Moran's I and LISA capture the *spatial topology* of that disparity
+(spatial justice). These are orthogonal analytical dimensions. Within the
+distributive axis, JFI replaces balance_gap (max−min range) as the axiomatic,
+scale-invariant measure recommended by peer-reviewed literature.
 
 SBPCG taxonomy (Togelius et al. 2011):
     Representation  : TI4Map tile permutation (genotype)
@@ -201,20 +202,21 @@ def _build_offspring(parent_map, topology, offspring_systems, evaluator):
 
 def _nsga2_dominates(a: Individual, b: Individual) -> bool:
     """
-    Strict Pareto dominance over 3 objectives: balance_gap, |morans_i|, lisa_penalty.
+    Strict Pareto dominance over 3 objectives (all minimized):
+      1 − jains_index, abs(morans_i), lisa_penalty.
 
     Returns True if a is better-or-equal on all objectives and strictly
     better on at least one.
     """
-    a_gap = a.score.balance_gap
+    a_jfi = 1.0 - a.score.jains_index
     a_mi  = abs(a.score.morans_i)
     a_lp  = a.score.lisa_penalty
-    b_gap = b.score.balance_gap
+    b_jfi = 1.0 - b.score.jains_index
     b_mi  = abs(b.score.morans_i)
     b_lp  = b.score.lisa_penalty
 
-    all_leq = (a_gap <= b_gap) and (a_mi <= b_mi) and (a_lp <= b_lp)
-    any_lt  = (a_gap < b_gap)  or  (a_mi < b_mi)  or  (a_lp < b_lp)
+    all_leq = (a_jfi <= b_jfi) and (a_mi <= b_mi) and (a_lp <= b_lp)
+    any_lt  = (a_jfi < b_jfi)  or  (a_mi < b_mi)  or  (a_lp < b_lp)
     return all_leq and any_lt
 
 
@@ -270,7 +272,9 @@ def _crowding_distance(front: List[Individual]) -> None:
     """
     Assign crowding distances in-place for individuals in one Pareto front.
 
-    3 objectives: balance_gap (minimize), |morans_i| (minimize), lisa_penalty (minimize).
+    3 objectives: 1 − jains_index (minimize), |morans_i| (minimize), lisa_penalty (minimize).
+    Each objective is normalized by (f_max − f_min) within the front, so the
+    different raw scales of JFI, Moran's I, and LISA do not bias diversity preservation.
     Boundary individuals (extreme on any objective) receive float('inf') so the
     tournament selector always preserves them to maintain Pareto front spread.
     """
@@ -284,7 +288,7 @@ def _crowding_distance(front: List[Individual]) -> None:
         return
 
     objective_getters = [
-        lambda ind: ind.score.balance_gap,
+        lambda ind: 1.0 - ind.score.jains_index,  # distributive equity
         lambda ind: abs(ind.score.morans_i),
         lambda ind: ind.score.lisa_penalty,
     ]
@@ -394,12 +398,9 @@ def nsga2_optimize(
     NSGA-II with BFS-blob OX1 crossover for TI4 map Pareto optimisation.
 
     Optimises three objectives simultaneously (SBPCG direct evaluation):
-        balance_gap   — max(home_values) - min(home_values)
-        abs(morans_i) — global resource clustering
-        lisa_penalty  — sum of positive local Moran's I (H-H / L-L hotspots)
-
-    jains_index is computed and stored but excluded from Pareto sorting to
-    avoid the many-objective curse (4+ objectives collapse rank discrimination).
+        1 − jains_index — distributive equity (Jain's Fairness Index)
+        abs(morans_i)   — global resource clustering
+        lisa_penalty    — sum of positive local Moran's I (H-H / L-L hotspots)
 
     Args:
         ti4_map        : Starting map (defines tile pool and board topology)
@@ -414,7 +415,7 @@ def nsga2_optimize(
 
     Returns:
         List of (TI4Map, MultiObjectiveScore) tuples representing the Pareto front,
-        sorted by balance_gap ascending.
+        sorted by jains_index descending (highest equity first).
     """
     rng = random.Random(random_seed)
 
@@ -496,20 +497,20 @@ def nsga2_optimize(
 
         if verbose and (gen % 10 == 0 or gen == generations):
             rank0 = [ind for ind in population if ind.rank == 0]
-            best_gap  = min(ind.score.balance_gap   for ind in rank0) if rank0 else float('inf')
+            best_jfi  = max(ind.score.jains_index    for ind in rank0) if rank0 else 0.0
             best_mi   = min(abs(ind.score.morans_i)  for ind in rank0) if rank0 else float('inf')
             best_lisa = min(ind.score.lisa_penalty   for ind in rank0) if rank0 else float('inf')
             print(
                 f"Gen {gen:>{len(str(generations))}}/{generations}: "
                 f"{len(rank0):>3} Pareto-front members | "
-                f"best gap={best_gap:.2f} | "
+                f"best JFI={best_jfi:.3f} | "
                 f"best |I|={best_mi:.3f} | "
                 f"best LISA={best_lisa:.3f}"
             )
 
-    # ── Return Pareto front sorted by balance_gap ────────────────────────────
+    # ── Return Pareto front sorted by JFI descending (highest equity first) ──
     pareto_front = [ind for ind in population if ind.rank == 0]
-    pareto_front.sort(key=lambda ind: ind.score.balance_gap)
+    pareto_front.sort(key=lambda ind: ind.score.jains_index, reverse=True)
 
     if verbose:
         print(f"\nFinal Pareto front: {len(pareto_front)} solutions")

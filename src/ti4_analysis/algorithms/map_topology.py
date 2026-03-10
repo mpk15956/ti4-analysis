@@ -49,12 +49,23 @@ class MapTopology:
     spatial_W is a pre-computed row-standardized sparse adjacency matrix used for
     vectorized Moran's I computation in FastMapState.
 
+    Multi-Jain decomposition (per-dimension JFI):
+        home_resources = static_home_resources + dynamic_weight_matrix @ system_resources
+        home_influence = static_home_influence + dynamic_weight_matrix @ system_influence
+
+    where system_resources/influence hold raw planet totals (no evaluator
+    multipliers) and the same dynamic_weight_matrix encodes distance weights.
+
     Attributes:
         home_indices: Indices into TI4Map.spaces for home positions, shape (H,).
         swappable_indices: Indices into TI4Map.spaces for swappable system
             positions, shape (S,). Ordering matches FastMapState.system_value.
         static_home_values: Pre-summed contribution of non-swappable systems,
             shape (H,). Added back in FastMapState.home_values().
+        static_home_resources: Pre-summed raw resource contribution from
+            non-swappable systems, shape (H,). Used for per-dimension JFI.
+        static_home_influence: Pre-summed raw influence contribution from
+            non-swappable systems, shape (H,). Used for per-dimension JFI.
         dynamic_weight_matrix: Pre-computed fitness weights for swappable
             positions, shape (H, S).
             dynamic_weight_matrix[h, s] = evaluator.get_distance_multiplier(
@@ -73,6 +84,8 @@ class MapTopology:
     home_indices: np.ndarray          # shape (H,) int32
     swappable_indices: np.ndarray     # shape (S,) int32
     static_home_values: np.ndarray    # shape (H,) float32
+    static_home_resources: np.ndarray # shape (H,) float32
+    static_home_influence: np.ndarray # shape (H,) float32
     dynamic_weight_matrix: np.ndarray # shape (H, S) float32
     spatial_indices: np.ndarray       # shape (N_sys,) int32
     spatial_static_values: np.ndarray # shape (N_sys,) float32
@@ -114,6 +127,8 @@ class MapTopology:
         H = len(home_indices)
         S = len(swappable_indices)
         static_home_values = np.zeros(H, dtype=np.float32)
+        static_home_resources = np.zeros(H, dtype=np.float32)
+        static_home_influence = np.zeros(H, dtype=np.float32)
         dynamic_weight_matrix = np.zeros((H, S), dtype=np.float32)
 
         # s_pos lookup: space index → column in dynamic_weight_matrix
@@ -149,6 +164,10 @@ class MapTopology:
                 else:
                     # Static: tile never moves; bake value × weight into constant
                     static_home_values[h_pos] += weight * system_value
+                    sys_res = sum(p.resources for p in space.system.planets)
+                    sys_inf = sum(p.influence for p in space.system.planets)
+                    static_home_resources[h_pos] += weight * sys_res
+                    static_home_influence[h_pos] += weight * sys_inf
 
         # --- Spatial metrics pre-computation ---
         # Collect all system spaces that have a system object (N_sys positions).
@@ -215,6 +234,8 @@ class MapTopology:
             home_indices=home_indices,
             swappable_indices=swappable_indices,
             static_home_values=static_home_values,
+            static_home_resources=static_home_resources,
+            static_home_influence=static_home_influence,
             dynamic_weight_matrix=dynamic_weight_matrix,
             spatial_indices=spatial_indices,
             spatial_static_values=spatial_static_values,

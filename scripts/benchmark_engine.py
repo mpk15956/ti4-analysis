@@ -49,7 +49,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--players",     type=int, default=6,      help="Number of players")
     p.add_argument("--output-dir",  type=str, default="output", help="Root output directory")
     p.add_argument("--algorithms",  type=str, default="hc,sa,nsga2",
-                   help="Comma-separated algorithms to run (hc, sa, nsga2)")
+                   help="Comma-separated algorithms to run (hc, sa, nsga2, ts)")
+    # Tabu Search hyperparameters
+    p.add_argument("--ts-tenure",   type=int, default=None,
+                   help="TS tabu tenure (default: ceil(sqrt(S)))")
     # SA hyperparameters (from optimize_hyperparameters.py best_params.json)
     p.add_argument("--sa-rate",     type=float, default=0.80,
                    help="SA initial_acceptance_rate (default: 0.80)")
@@ -62,6 +65,11 @@ def parse_args() -> argparse.Namespace:
                    help="NSGA-II mutation_rate (default: 0.05)")
     p.add_argument("--nsga-warm",   type=float, default=0.10,
                    help="NSGA-II warm_fraction (default: 0.10)")
+    p.add_argument("--budgets",     type=str, default=None,
+                   help="Comma-separated evaluation budgets for convergence profile "
+                        "(e.g. 1000,5000,10000,25000).  When set, overrides "
+                        "--hc-iter / --sa-iter / --nsga-gen for each budget level. "
+                        "NSGA-II generations = budget // nsga-pop.")
     return p.parse_args()
 
 
@@ -70,9 +78,9 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
-    "seed", "algorithm",
-    "balance_gap", "morans_i", "jains_index", "lisa_penalty",
-    "composite_score", "elapsed_sec", "front_size",
+    "seed", "algorithm", "budget",
+    "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
+    "lisa_penalty", "composite_score", "elapsed_sec", "front_size",
 ]
 
 
@@ -82,13 +90,17 @@ def make_row(
     score,
     elapsed: float,
     front_size: int,
+    budget: int = 0,
 ) -> Dict:
     return {
         "seed":           seed,
         "algorithm":      algorithm,
+        "budget":         budget,
         "balance_gap":    round(float(score.balance_gap),        4),
         "morans_i":       round(float(score.morans_i),           4),
         "jains_index":    round(float(score.jains_index),        4),
+        "jfi_resources":  round(float(score.jfi_resources),      4),
+        "jfi_influence":  round(float(score.jfi_influence),      4),
         "lisa_penalty":   round(float(score.lisa_penalty),       4),
         "composite_score":round(float(score.composite_score()),  4),
         "elapsed_sec":    round(elapsed,                          2),
@@ -96,11 +108,12 @@ def make_row(
     }
 
 
-def make_error_row(seed: int, algorithm: str, elapsed: float) -> Dict:
+def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0) -> Dict:
     return {
-        "seed": seed, "algorithm": algorithm,
+        "seed": seed, "algorithm": algorithm, "budget": budget,
         "balance_gap": float("nan"), "morans_i": float("nan"),
-        "jains_index": float("nan"), "lisa_penalty": float("nan"),
+        "jains_index": float("nan"), "jfi_resources": float("nan"),
+        "jfi_influence": float("nan"), "lisa_penalty": float("nan"),
         "composite_score": float("nan"),
         "elapsed_sec": round(elapsed, 2), "front_size": -1,
     }
@@ -124,7 +137,7 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
     print("=" * len(header))
     print(header)
     print("-" * len(header))
-    for algo in ("hc", "sa", "nsga2"):
+    for algo in ("hc", "sa", "nsga2", "ts"):
         if algo not in accum:
             continue
         d = accum[algo]
@@ -140,10 +153,131 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+def _run_seed(
+    seed, algos, evaluator, args, writer, accum, budget,
+    generate_random_map, improve_balance, improve_balance_spatial,
+    evaluate_map_multiobjective, nsga2_optimize, improve_balance_tabu,
+    MapTopology, FastMapState,
+    hc_iter, sa_iter, nsga_gen,
+):
+    """Run all algorithms for a single seed at a given budget level."""
+    seed_start = time.time()
+
+    try:
+        initial_map = generate_random_map(
+            player_count=args.players,
+            template_name="normal",
+            include_pok=True,
+            random_seed=seed,
+        )
+
+        # ── Greedy Hill Climbing ──────────────────────────────────
+        if "hc" in algos:
+            hc_map = initial_map.copy()
+            t0 = time.time()
+            improve_balance(
+                hc_map, evaluator,
+                iterations=hc_iter,
+                random_seed=seed,
+            )
+            topo = MapTopology.from_ti4_map(hc_map, evaluator)
+            fs   = FastMapState.from_ti4_map(topo, hc_map, evaluator)
+            hc_score = evaluate_map_multiobjective(hc_map, evaluator, fast_state=fs)
+            elapsed_hc = time.time() - t0
+
+            row = make_row(seed, "hc", hc_score, elapsed_hc, 1, budget)
+            writer.writerow(row)
+            accum["hc"]["composite_score"].append(row["composite_score"])
+            accum["hc"]["balance_gap"].append(row["balance_gap"])
+            accum["hc"]["elapsed_sec"].append(elapsed_hc)
+
+            del hc_map, topo, fs
+
+        # ── Simulated Annealing ───────────────────────────────────
+        if "sa" in algos:
+            sa_map = initial_map.copy()
+            t0 = time.time()
+            sa_score, _ = improve_balance_spatial(
+                sa_map, evaluator,
+                iterations=sa_iter,
+                initial_acceptance_rate=args.sa_rate,
+                min_temp=args.sa_min_temp,
+                random_seed=seed,
+                verbose=False,
+            )
+            elapsed_sa = time.time() - t0
+
+            row = make_row(seed, "sa", sa_score, elapsed_sa, 1, budget)
+            writer.writerow(row)
+            accum["sa"]["composite_score"].append(row["composite_score"])
+            accum["sa"]["balance_gap"].append(row["balance_gap"])
+            accum["sa"]["elapsed_sec"].append(elapsed_sa)
+
+            del sa_map
+
+        # ── NSGA-II ───────────────────────────────────────────────
+        if "nsga2" in algos:
+            nsga_map = initial_map.copy()
+            t0 = time.time()
+            front = nsga2_optimize(
+                nsga_map, evaluator,
+                generations=nsga_gen,
+                population_size=args.nsga_pop,
+                blob_fraction=args.nsga_blob,
+                mutation_rate=args.nsga_mut,
+                warm_fraction=args.nsga_warm,
+                random_seed=seed,
+                verbose=False,
+            )
+            elapsed_nsga = time.time() - t0
+
+            best_score = min(front, key=lambda x: x[1].composite_score())[1]
+            row = make_row(seed, "nsga2", best_score, elapsed_nsga, len(front), budget)
+            writer.writerow(row)
+            accum["nsga2"]["composite_score"].append(row["composite_score"])
+            accum["nsga2"]["balance_gap"].append(row["balance_gap"])
+            accum["nsga2"]["elapsed_sec"].append(elapsed_nsga)
+
+            del nsga_map, front
+
+        # ── Tabu Search ───────────────────────────────────────────
+        if "ts" in algos:
+            ts_map = initial_map.copy()
+            t0 = time.time()
+            ts_score, _ = improve_balance_tabu(
+                ts_map, evaluator,
+                max_evaluations=budget,
+                tabu_tenure=args.ts_tenure,
+                random_seed=seed,
+                verbose=False,
+            )
+            elapsed_ts = time.time() - t0
+
+            row = make_row(seed, "ts", ts_score, elapsed_ts, 1, budget)
+            writer.writerow(row)
+            accum["ts"]["composite_score"].append(row["composite_score"])
+            accum["ts"]["balance_gap"].append(row["balance_gap"])
+            accum["ts"]["elapsed_sec"].append(elapsed_ts)
+
+            del ts_map
+
+        return True
+
+    except Exception as exc:
+        elapsed_err = time.time() - seed_start
+        print(f"seed={seed:4d}  ERROR after {elapsed_err:.1f}s: {exc}", file=sys.stderr)
+        for algo in algos:
+            writer.writerow(make_error_row(seed, algo, elapsed_err, budget))
+        return False
+
+    finally:
+        gc.collect()
+
+
 def main() -> int:
     args = parse_args()
     algos = {a.strip().lower() for a in args.algorithms.split(",")}
-    valid = {"hc", "sa", "nsga2"}
+    valid = {"hc", "sa", "nsga2", "ts"}
     unknown = algos - valid
     if unknown:
         print(f"ERROR: Unknown algorithms: {unknown}. Valid: {valid}", file=sys.stderr)
@@ -157,11 +291,18 @@ def main() -> int:
         evaluate_map_multiobjective,
     )
     from ti4_analysis.algorithms.nsga2_optimizer import nsga2_optimize
+    from ti4_analysis.algorithms.tabu_search_optimizer import improve_balance_tabu
     from ti4_analysis.algorithms.map_topology import MapTopology
     from ti4_analysis.algorithms.fast_map_state import FastMapState
     from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
 
     evaluator = create_joebrew_evaluator()
+
+    # Determine budget schedule
+    if args.budgets:
+        budget_levels = [int(b.strip()) for b in args.budgets.split(",")]
+    else:
+        budget_levels = [args.hc_iter]  # single budget, backward-compatible
 
     # Create run directory
     run_name = datetime.now().strftime("benchmark_%Y%m%d_%H%M%S")
@@ -175,6 +316,7 @@ def main() -> int:
         "base_seed":  args.base_seed,
         "players":    args.players,
         "algorithms": sorted(algos),
+        "budgets":    budget_levels,
         "hc_iter":    args.hc_iter,
         "sa_iter":    args.sa_iter,
         "nsga_gen":   args.nsga_gen,
@@ -198,14 +340,8 @@ def main() -> int:
     print(f"Run directory : {run_dir}")
     print(f"Seeds         : {args.seeds}  (base_seed={args.base_seed})")
     print(f"Algorithms    : {', '.join(sorted(algos))}")
-    print(f"HC iterations : {args.hc_iter}")
-    print(f"SA iterations : {args.sa_iter}")
-    print(f"NSGA-II       : {args.nsga_gen} gen × {args.nsga_pop} pop = "
-          f"{args.nsga_gen * args.nsga_pop} evals")
+    print(f"Budget levels : {budget_levels}")
     print()
-
-    # Per-algorithm accumulators for final summary
-    accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
     seeds_done = 0
     run_start = time.time()
@@ -215,129 +351,65 @@ def main() -> int:
         writer.writeheader()
         csv_file.flush()
 
-        for seed_offset in range(args.seeds):
-            seed = args.base_seed + seed_offset
-            seed_start = time.time()
+        for budget in budget_levels:
+            # Derive per-algorithm iterations from budget
+            if args.budgets:
+                hc_iter  = budget
+                sa_iter  = budget
+                nsga_gen = max(1, budget // args.nsga_pop)
+            else:
+                hc_iter  = args.hc_iter
+                sa_iter  = args.sa_iter
+                nsga_gen = args.nsga_gen
 
-            try:
-                initial_map = generate_random_map(
-                    player_count=args.players,
-                    template_name="normal",
-                    include_pok=True,
-                    random_seed=seed,
+            actual_nsga_evals = nsga_gen * args.nsga_pop
+
+            print(f"── Budget {budget:,} ─────────────────────────────────────")
+            print(f"   HC={hc_iter}, SA={sa_iter}, "
+                  f"NSGA-II={nsga_gen}gen × {args.nsga_pop}pop = {actual_nsga_evals}")
+
+            accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+
+            for seed_offset in range(args.seeds):
+                seed = args.base_seed + seed_offset
+                seed_start = time.time()
+
+                ok = _run_seed(
+                    seed, algos, evaluator, args, writer, accum, budget,
+                    generate_random_map, improve_balance, improve_balance_spatial,
+                    evaluate_map_multiobjective, nsga2_optimize,
+                    improve_balance_tabu, MapTopology, FastMapState,
+                    hc_iter, sa_iter, nsga_gen,
                 )
-
-                # ── Greedy Hill Climbing ──────────────────────────────────
-                if "hc" in algos:
-                    hc_map = initial_map.copy()
-                    t0 = time.time()
-                    improve_balance(
-                        hc_map, evaluator,
-                        iterations=args.hc_iter,
-                        random_seed=seed,
-                    )
-                    # improve_balance() returns (gap, history); re-evaluate
-                    # for full MultiObjectiveScore via fast path.
-                    topo = MapTopology.from_ti4_map(hc_map, evaluator)
-                    fs   = FastMapState.from_ti4_map(topo, hc_map, evaluator)
-                    hc_score = evaluate_map_multiobjective(hc_map, evaluator, fast_state=fs)
-                    elapsed_hc = time.time() - t0
-
-                    row = make_row(seed, "hc", hc_score, elapsed_hc, 1)
-                    writer.writerow(row)
-                    accum["hc"]["composite_score"].append(row["composite_score"])
-                    accum["hc"]["balance_gap"].append(row["balance_gap"])
-                    accum["hc"]["elapsed_sec"].append(elapsed_hc)
-
-                    del hc_map, topo, fs
-
-                # ── Simulated Annealing ───────────────────────────────────
-                if "sa" in algos:
-                    sa_map = initial_map.copy()
-                    t0 = time.time()
-                    sa_score, _ = improve_balance_spatial(
-                        sa_map, evaluator,
-                        iterations=args.sa_iter,
-                        initial_acceptance_rate=args.sa_rate,
-                        min_temp=args.sa_min_temp,
-                        random_seed=seed,
-                        verbose=False,
-                    )
-                    elapsed_sa = time.time() - t0
-
-                    row = make_row(seed, "sa", sa_score, elapsed_sa, 1)
-                    writer.writerow(row)
-                    accum["sa"]["composite_score"].append(row["composite_score"])
-                    accum["sa"]["balance_gap"].append(row["balance_gap"])
-                    accum["sa"]["elapsed_sec"].append(elapsed_sa)
-
-                    del sa_map
-
-                # ── NSGA-II ───────────────────────────────────────────────
-                if "nsga2" in algos:
-                    nsga_map = initial_map.copy()
-                    t0 = time.time()
-                    front = nsga2_optimize(
-                        nsga_map, evaluator,
-                        generations=args.nsga_gen,
-                        population_size=args.nsga_pop,
-                        blob_fraction=args.nsga_blob,
-                        mutation_rate=args.nsga_mut,
-                        warm_fraction=args.nsga_warm,
-                        random_seed=seed,
-                        verbose=False,
-                    )
-                    elapsed_nsga = time.time() - t0
-
-                    # Best-composite member for scalar comparison
-                    best_score = min(front, key=lambda x: x[1].composite_score())[1]
-                    row = make_row(seed, "nsga2", best_score, elapsed_nsga, len(front))
-                    writer.writerow(row)
-                    accum["nsga2"]["composite_score"].append(row["composite_score"])
-                    accum["nsga2"]["balance_gap"].append(row["balance_gap"])
-                    accum["nsga2"]["elapsed_sec"].append(elapsed_nsga)
-
-                    del nsga_map, front
-
                 csv_file.flush()
-                seeds_done += 1
+
+                if ok:
+                    seeds_done += 1
 
                 elapsed_total = time.time() - run_start
-                avg = elapsed_total / seeds_done
-                remaining = (args.seeds - seeds_done) * avg
                 seed_elapsed = time.time() - seed_start
+                avg = elapsed_total / max(1, seeds_done)
+                total_seeds = args.seeds * len(budget_levels)
+                remaining = (total_seeds - seeds_done) * avg
 
                 print(
-                    f"seed={seed:4d}  "
+                    f"  seed={seed:4d}  "
                     + ("" if "hc"    not in algos else f"hc={accum['hc']['composite_score'][-1]:.3f}  ")
                     + ("" if "sa"    not in algos else f"sa={accum['sa']['composite_score'][-1]:.3f}  ")
                     + ("" if "nsga2" not in algos else f"nsga2={accum['nsga2']['composite_score'][-1]:.3f}  ")
+                    + ("" if "ts"    not in algos else f"ts={accum['ts']['composite_score'][-1]:.3f}  ")
                     + f"t={seed_elapsed:.1f}s  eta={remaining/60:.1f}min"
                 )
 
-            except Exception as exc:
-                elapsed_err = time.time() - seed_start
-                print(f"seed={seed:4d}  ERROR after {elapsed_err:.1f}s: {exc}", file=sys.stderr)
-                for algo in algos:
-                    writer.writerow(make_error_row(seed, algo, elapsed_err))
-                csv_file.flush()
-
-            finally:
-                try:
-                    del initial_map
-                except NameError:
-                    pass
-                gc.collect()
+            print_summary(accum)
 
     total_time = time.time() - run_start
     print()
-    print(f"Seeds completed : {seeds_done}/{args.seeds}")
+    print(f"Seeds completed : {seeds_done}/{args.seeds * len(budget_levels)}")
     print(f"Total time      : {total_time/60:.1f} min")
     print(f"Results CSV     : {csv_path}")
 
-    print_summary(accum)
-
-    return 0 if seeds_done == args.seeds else 1
+    return 0 if seeds_done == args.seeds * len(budget_levels) else 1
 
 
 if __name__ == "__main__":

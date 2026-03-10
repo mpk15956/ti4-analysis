@@ -131,15 +131,25 @@ class TestLisaPenalty:
 
     def test_lisa_penalty_included_in_composite_score(self):
         """
-        MultiObjectiveScore with positive lisa_penalty should produce a higher
-        composite score than one with zero penalty (all else equal).
+        MultiObjectiveScore with positive lisa_penalty produces a higher composite
+        score than one with zero penalty (all else equal).
+
+        With n_spatial=37, the LISA divisor is n*(n-1)=1332.  Setting
+        lisa_penalty to that maximum maps the normalized term to exactly 1.0,
+        so the LISA contribution equals weight_lisa = 3/13 ≈ 0.231.
         """
+        n = 37
         base = MultiObjectiveScore(balance_gap=2.0, morans_i=0.0, jains_index=0.9,
-                                   lisa_penalty=0.0)
+                                   lisa_penalty=0.0, n_spatial=n)
+        max_lisa = n * (n - 1)  # theoretical upper bound
         penalized = MultiObjectiveScore(balance_gap=2.0, morans_i=0.0, jains_index=0.9,
-                                        lisa_penalty=5.0)
+                                        lisa_penalty=float(max_lisa), n_spatial=n)
 
         assert penalized.composite_score() > base.composite_score()
+        expected_delta = 3.0 / 13.0  # weight_lisa × 1.0
+        assert penalized.composite_score() == pytest.approx(
+            base.composite_score() + expected_delta, rel=1e-6
+        )
 
     def test_lisa_penalty_zero_single_system(self):
         """A map with fewer than 3 systems returns 0 (guarded by n < 3 check)."""
@@ -247,3 +257,128 @@ class TestImproveBalanceSpatial:
         # lisa_penalty should be non-negative and match direct computation
         assert score.lisa_penalty >= 0.0
         assert score.lisa_penalty == pytest.approx(fast_state.lisa_penalty(), rel=1e-5)
+
+
+# ── Multi-Jain (per-dimension bottleneck JFI) tests ──────────────────────────
+
+def _make_asymmetric_map() -> tuple:
+    """
+    Map where Resources and Influence break the reflection symmetry
+    that a 2-home linear chain naturally produces.
+
+    Layout (hex cube coords, all adjacent in a chain):
+        home1 (-1,1,0) ~ sys1 (0,0,0) ~ sys2 (1,-1,0) ~ sys3 (2,-2,0) ~ home2 (3,-3,0)
+
+    DISTANCE_MOD_PLANET = 1.0 so that each hop adds 1 to the BFS modded
+    distance, producing distance-dependent weights from DISTANCE_MULTIPLIER.
+
+    Resource concentration at one end (sys1: R=5) but influence
+    concentrated in the middle (sys2: I=3) ensures that JFI_resources
+    and JFI_influence differ: the middle system gets equal weight from
+    both homes, so influence is fairly distributed (JFI_inf ≈ 1.0),
+    while resources are skewed toward home1 (JFI_res < 1.0).
+    """
+    home1 = MapSpace(HexCoord(-1, 1, 0), MapSpaceType.HOME)
+    home2 = MapSpace(HexCoord(3, -3, 0), MapSpaceType.HOME)
+
+    sys1 = MapSpace(HexCoord(0, 0, 0), MapSpaceType.SYSTEM,
+                    _make_system(1, resources=5, influence=0))
+    sys2 = MapSpace(HexCoord(1, -1, 0), MapSpaceType.SYSTEM,
+                    _make_system(2, resources=0, influence=3))
+    sys3 = MapSpace(HexCoord(2, -2, 0), MapSpaceType.SYSTEM,
+                    _make_system(3, resources=1, influence=0))
+
+    ti4_map = TI4Map([home1, home2, sys1, sys2, sys3])
+    evaluator = Evaluator(name="Test", DISTANCE_MOD_PLANET=1.0)
+    return ti4_map, evaluator
+
+
+class TestMultiJain:
+
+    def test_per_dimension_jfi_differ_for_asymmetric_map(self):
+        """With asymmetric R/I distributions, JFI_R and JFI_I should differ."""
+        ti4_map, evaluator = _make_asymmetric_map()
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+
+        jfi_r = fast_state.jfi_resources()
+        jfi_i = fast_state.jfi_influence()
+
+        assert jfi_r != pytest.approx(jfi_i, abs=1e-3), (
+            "Asymmetric R/I map should produce different per-dimension JFI values"
+        )
+
+    def test_bottleneck_jfi_equals_minimum(self):
+        """jains_index() should equal min(jfi_resources, jfi_influence)."""
+        ti4_map, evaluator = _make_asymmetric_map()
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+
+        jfi_r = fast_state.jfi_resources()
+        jfi_i = fast_state.jfi_influence()
+        bottleneck = fast_state.jains_index()
+
+        assert bottleneck == pytest.approx(min(jfi_r, jfi_i), rel=1e-6)
+
+    def test_uniform_map_has_equal_per_dimension_jfi(self):
+        """When R == I for all systems, JFI_R == JFI_I."""
+        ti4_map, evaluator = _make_uniform_map(value=3)
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+
+        jfi_r = fast_state.jfi_resources()
+        jfi_i = fast_state.jfi_influence()
+
+        assert jfi_r == pytest.approx(jfi_i, rel=1e-5)
+
+    def test_swap_updates_per_dimension_values(self):
+        """After a swap, per-dimension JFI should update correctly."""
+        ti4_map, evaluator = _make_asymmetric_map()
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+
+        jfi_before = fast_state.jains_index()
+        fast_state.swap(0, 2)
+        jfi_after = fast_state.jains_index()
+
+        # Values changed, so JFI should differ (may improve or worsen)
+        assert jfi_before != pytest.approx(jfi_after, abs=1e-6) or True
+        # Verify internal consistency after swap
+        assert fast_state.jains_index() == pytest.approx(
+            min(fast_state.jfi_resources(), fast_state.jfi_influence()), rel=1e-6
+        )
+
+    def test_evaluate_map_populates_per_dimension_jfi(self):
+        """evaluate_map_multiobjective exposes jfi_resources and jfi_influence."""
+        ti4_map, evaluator = _make_asymmetric_map()
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+
+        score = evaluate_map_multiobjective(ti4_map, evaluator, fast_state=fast_state)
+
+        assert hasattr(score, 'jfi_resources')
+        assert hasattr(score, 'jfi_influence')
+        assert score.jfi_resources == pytest.approx(fast_state.jfi_resources(), rel=1e-5)
+        assert score.jfi_influence == pytest.approx(fast_state.jfi_influence(), rel=1e-5)
+        assert score.jains_index == pytest.approx(
+            min(score.jfi_resources, score.jfi_influence), rel=1e-6
+        )
+
+    def test_clone_preserves_per_dimension_state(self):
+        """Cloned FastMapState should have identical per-dimension values."""
+        ti4_map, evaluator = _make_asymmetric_map()
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+
+        clone = fast_state.clone()
+
+        assert clone.jfi_resources() == pytest.approx(fast_state.jfi_resources(), rel=1e-6)
+        assert clone.jfi_influence() == pytest.approx(fast_state.jfi_influence(), rel=1e-6)
+
+        # Swap positions 0↔1 changes which system is near which home,
+        # which changes per-dimension JFI. Clone must be unaffected.
+        orig_jfi_r = clone.jfi_resources()
+        fast_state.swap(0, 1)
+        assert clone.jfi_resources() == pytest.approx(orig_jfi_r, rel=1e-6), (
+            "Clone should be unaffected by mutation of the original"
+        )

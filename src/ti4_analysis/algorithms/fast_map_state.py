@@ -34,20 +34,42 @@ class FastMapState:
     Home values are lazily recomputed from:
         home_values = topology.weight_matrix @ system_value
 
+    Per-dimension resource/influence arrays support Multi-Jain (bottleneck
+    JFI across resource dimensions) without changing the spatial metrics,
+    which continue to operate on the combined evaluator scalar.
+
     The weight_matrix is static (topology never changes during optimization),
     so only system_value needs to be updated on each swap.
     """
 
-    __slots__ = ("topology", "system_value", "_home_values", "_dirty",
+    __slots__ = ("topology", "system_value",
+                 "system_resources", "system_influence",
+                 "_home_values", "_dirty",
+                 "_home_resources", "_home_influence", "_home_ri_dirty",
                  "_spatial_values", "_spatial_dirty")
 
-    def __init__(self, topology: MapTopology, system_value: np.ndarray) -> None:
+    def __init__(
+        self,
+        topology: MapTopology,
+        system_value: np.ndarray,
+        system_resources: np.ndarray,
+        system_influence: np.ndarray,
+    ) -> None:
         self.topology = topology
-        self.system_value: np.ndarray = system_value  # shape (S,) float32
+        self.system_value: np.ndarray = system_value        # shape (S,) float32
+        self.system_resources: np.ndarray = system_resources  # shape (S,) float32
+        self.system_influence: np.ndarray = system_influence  # shape (S,) float32
         self._home_values: np.ndarray = (
             topology.static_home_values + topology.dynamic_weight_matrix @ system_value
         )
         self._dirty: bool = False
+        self._home_resources: np.ndarray = (
+            topology.static_home_resources + topology.dynamic_weight_matrix @ system_resources
+        )
+        self._home_influence: np.ndarray = (
+            topology.static_home_influence + topology.dynamic_weight_matrix @ system_influence
+        )
+        self._home_ri_dirty: bool = False
         self._spatial_values: np.ndarray = np.empty(0, dtype=np.float32)
         self._spatial_dirty: bool = True
 
@@ -69,20 +91,45 @@ class FastMapState:
             ],
             dtype=np.float32,
         )
-        return cls(topology, system_value)
+        system_resources = np.array(
+            [
+                sum(p.resources for p in spaces[i].system.planets)
+                if spaces[i].system else 0.0
+                for i in topology.swappable_indices
+            ],
+            dtype=np.float32,
+        )
+        system_influence = np.array(
+            [
+                sum(p.influence for p in spaces[i].system.planets)
+                if spaces[i].system else 0.0
+                for i in topology.swappable_indices
+            ],
+            dtype=np.float32,
+        )
+        return cls(topology, system_value, system_resources, system_influence)
 
     def swap(self, s_i: int, s_j: int) -> None:
         """
         Swap the system values at two swappable-position indices.
 
         Call again with the same indices to revert (swap is its own inverse).
-        O(1) — two scalar assignments.
+        O(1) — six scalar assignments (value + resources + influence).
         """
         self.system_value[s_i], self.system_value[s_j] = (
             self.system_value[s_j],
             self.system_value[s_i],
         )
+        self.system_resources[s_i], self.system_resources[s_j] = (
+            self.system_resources[s_j],
+            self.system_resources[s_i],
+        )
+        self.system_influence[s_i], self.system_influence[s_j] = (
+            self.system_influence[s_j],
+            self.system_influence[s_i],
+        )
         self._dirty = True
+        self._home_ri_dirty = True
         self._spatial_dirty = True
 
     def home_values(self) -> np.ndarray:
@@ -176,22 +223,54 @@ class FastMapState:
         local_I = z_dev * np.asarray(Wz).ravel() / m2
         return float(local_I[local_I > 0].sum())
 
-    def jains_index(self) -> float:
-        """
-        Jain's Fairness Index on home_values(). O(H), already cached.
+    def home_resources(self) -> np.ndarray:
+        """Distance-weighted raw resource totals per home, shape (H,)."""
+        if self._home_ri_dirty:
+            self._home_resources = (
+                self.topology.static_home_resources
+                + self.topology.dynamic_weight_matrix @ self.system_resources
+            )
+            self._home_influence = (
+                self.topology.static_home_influence
+                + self.topology.dynamic_weight_matrix @ self.system_influence
+            )
+            self._home_ri_dirty = False
+        return self._home_resources
 
-        J = (Σhv)² / (H × Σhv²). Range [1/H, 1]; 1 = perfect fairness.
-        Uses the BFS-routing-weighted home values, consistent with balance_gap.
-        """
-        hv = self.home_values()
-        n = len(hv)
+    def home_influence(self) -> np.ndarray:
+        """Distance-weighted raw influence totals per home, shape (H,)."""
+        if self._home_ri_dirty:
+            self.home_resources()  # recomputes both
+        return self._home_influence
+
+    @staticmethod
+    def _jfi(v: np.ndarray) -> float:
+        """Jain's Fairness Index on a 1-D value vector."""
+        n = len(v)
         if n == 0:
             return 1.0
-        sum_x = float(hv.sum())
-        sum_x2 = float((hv ** 2).sum())
+        sum_x = float(v.sum())
+        sum_x2 = float((v ** 2).sum())
         if sum_x2 == 0.0:
             return 1.0
         return (sum_x ** 2) / (n * sum_x2)
+
+    def jfi_resources(self) -> float:
+        """JFI on distance-weighted raw resources per player."""
+        return self._jfi(self.home_resources())
+
+    def jfi_influence(self) -> float:
+        """JFI on distance-weighted raw influence per player."""
+        return self._jfi(self.home_influence())
+
+    def jains_index(self) -> float:
+        """
+        Multi-Jain bottleneck: min(JFI_resources, JFI_influence).
+
+        DRF-inspired: map fairness is limited by the least-fair resource
+        dimension. Range [1/H, 1]; 1 = perfect fairness on both axes.
+        """
+        return min(self.jfi_resources(), self.jfi_influence())
 
     def clone(self) -> 'FastMapState':
         """
@@ -203,8 +282,13 @@ class FastMapState:
         new = object.__new__(FastMapState)
         new.topology = self.topology          # shared — topology is frozen
         new.system_value = self.system_value.copy()
+        new.system_resources = self.system_resources.copy()
+        new.system_influence = self.system_influence.copy()
         new._home_values = self._home_values.copy()
         new._dirty = self._dirty
+        new._home_resources = self._home_resources.copy()
+        new._home_influence = self._home_influence.copy()
+        new._home_ri_dirty = self._home_ri_dirty
         new._spatial_values = (
             self._spatial_values.copy() if not self._spatial_dirty
             else np.empty(0, dtype=np.float32)
