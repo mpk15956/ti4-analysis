@@ -188,7 +188,7 @@ def _run_seed(job):
     import numpy as np
 
     from ti4_analysis.algorithms.map_generator import generate_random_map
-    from ti4_analysis.algorithms.balance_engine import improve_balance
+    from ti4_analysis.algorithms.hc_optimizer import hc_optimize
     from ti4_analysis.algorithms.spatial_optimizer import (
         improve_balance_spatial, evaluate_map_multiobjective,
     )
@@ -239,16 +239,15 @@ def _run_seed(job):
         if "hc" in algos:
             hc_map = initial_map.copy()
             t0 = time.time()
-            improve_balance(
+            hc_score, _, hc_etb = hc_optimize(
                 hc_map, evaluator,
                 iterations=hc_iter,
                 random_seed=seed,
+                verbose=False,
             )
-            topo = MapTopology.from_ti4_map(hc_map, evaluator)
-            fs   = FastMapState.from_ti4_map(topo, hc_map, evaluator)
-            hc_score = evaluate_map_multiobjective(hc_map, evaluator, fast_state=fs)
-            rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget))
-            del hc_map, topo, fs
+            rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
+                                 evals_to_best=hc_etb))
+            del hc_map
 
         if "sa" in algos:
             sa_map = initial_map.copy()

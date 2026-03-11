@@ -208,7 +208,7 @@ $|G_i^*| > 1.96$ indicates a statistically significant cluster at 95% confidence
 
 #### Greedy Hill-Climbing (HC)
 
-Iterative system-swap search that accepts a candidate move if and only if it strictly reduces the composite score. Carries no memory of prior states. Acts as the baseline: it serves as a lower bound on optimization quality and an upper bound on simplicity.
+Iterative system-swap search that accepts a candidate move if and only if it strictly reduces the composite score. Carries no memory of prior states. Acts as the baseline: it serves as a lower bound on optimization quality and an upper bound on simplicity. The benchmark uses a dedicated composite-scoring HC ([`hc_optimizer.py`](src/ti4_analysis/algorithms/hc_optimizer.py)); the gap-only HC in [`balance_engine.py`](src/ti4_analysis/algorithms/balance_engine.py) is retained for the spatial blindness experiment and for warm-starting NSGA-II/SGA.
 
 #### Simulated Annealing (SA)
 

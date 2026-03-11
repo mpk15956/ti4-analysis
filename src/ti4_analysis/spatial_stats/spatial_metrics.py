@@ -56,16 +56,22 @@ class SpatialWeightMatrix:
 
 def create_adjacency_weights(
     ti4_map: TI4Map,
-    include_wormholes: bool = False
+    include_wormholes: bool = False,
+    evaluator: Optional[Evaluator] = None,
 ) -> SpatialWeightMatrix:
     """
     Create binary adjacency weight matrix.
 
-    W[i,j] = 1 if spaces i and j are adjacent, 0 otherwise
+    W[i,j] = 1 if spaces i and j are adjacent, 0 otherwise.
+    If evaluator is provided, edges from or to impassable tiles (e.g. Supernova)
+    are omitted so W reflects navigable topology only.
 
     Args:
         ti4_map: TI4 map object
         include_wormholes: Whether to treat wormholes as adjacency
+        evaluator: If provided, exclude edges involving impassable systems
+            (get_distance_modifier(evaluator) is None). Default None for
+            backward compatibility (geometric adjacency only).
 
     Returns:
         Spatial weight matrix
@@ -74,14 +80,21 @@ def create_adjacency_weights(
     n = len(spaces)
     weights = np.zeros((n, n))
 
+    def is_passable(space: MapSpace) -> bool:
+        if evaluator is None or space.system is None:
+            return True
+        return space.system.get_distance_modifier(evaluator) is not None
+
     for i, space_i in enumerate(spaces):
+        if not is_passable(space_i):
+            continue
         if include_wormholes:
             neighbors = ti4_map.get_adjacent_spaces_including_wormholes(space_i)
         else:
             neighbors = ti4_map.get_adjacent_spaces(space_i)
 
         for j, space_j in enumerate(spaces):
-            if space_j in neighbors:
+            if space_j in neighbors and is_passable(space_j):
                 weights[i, j] = 1
 
     coords = [s.coord for s in spaces]
@@ -467,6 +480,13 @@ def identify_hotspots(
     """
     Identify resource hot spots and cold spots using Getis-Ord Gi*.
 
+    .. deprecated::
+        This function uses continuous 1/d^β distance decay (via
+        ``create_distance_weights(beta=1.0)``), which is inconsistent with the
+        discrete step-function topology used in the benchmark and Evaluator.
+        Use for exploratory analysis only; not part of the publication
+        methodology.
+
     .. note:: Small-N caveat
         The default z-score cutoff of 1.96 assumes asymptotic normality of
         the Gi* statistic. A typical TI4 map has ~37 system tiles, which is
@@ -484,6 +504,13 @@ def identify_hotspots(
     Returns:
         List of (coord, Gi*, type) tuples where type is 'hotspot' or 'coldspot'
     """
+    warnings.warn(
+        "identify_hotspots uses continuous distance decay (1/d^β); "
+        "for benchmark consistency use discrete step-function topology. "
+        "Exploratory analysis only.",
+        category=DeprecationWarning,
+        stacklevel=2,
+    )
     spaces = [s for s in ti4_map.spaces if s.space_type == MapSpaceType.SYSTEM and s.system]
 
     if len(spaces) < 3:

@@ -206,12 +206,18 @@ class MapTopology:
             dtype=np.float32,
         )
 
-        # Sparse binary adjacency matrix (N_sys, N_sys) including wormhole connections.
+        # Sparse binary adjacency matrix (N_sys, N_sys) on navigable topology only.
+        # Skip edges from or to impassable tiles (e.g. Supernova) so Moran's I / LSAP
+        # use strategic proximity, not geometric adjacency.
         adj_rows, adj_cols = [], []
         for row_k, space_idx in enumerate(spatial_indices):
             space = spaces[int(space_idx)]
+            if space.system is not None and space.system.get_distance_modifier(evaluator) is None:
+                continue
             neighbors = ti4_map.get_adjacent_spaces_including_wormholes(space)
             for nb in neighbors:
+                if nb.system is not None and nb.system.get_distance_modifier(evaluator) is None:
+                    continue
                 nb_idx = next(
                     (i for i, s in enumerate(spaces) if s is nb), None
                 )

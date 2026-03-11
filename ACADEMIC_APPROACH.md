@@ -87,8 +87,9 @@ ti4-analysis/
 ├── src/ti4_analysis/
 │   ├── algorithms/
 │   │   ├── nsga2_optimizer.py     (PyMOO NSGA-II implementation)
-│   │   ├── balance_engine.py      (Hill-climbing baseline)
-│   │   └── spatial_optimizer.py   (Legacy multi-objective)
+│   │   ├── hc_optimizer.py        (Benchmark HC: composite 5:5:3)
+│   │   ├── balance_engine.py      (Gap-only HC: spatial blindness exp, warm start)
+│   │   └── spatial_optimizer.py   (SA, multi-objective)
 │   ├── benchmarking/              (NEW: Academic framework)
 │   │   ├── quality_indicators.py  (HV, IGD+, Spacing)
 │   │   ├── statistical_tests.py   (Wilcoxon, Friedman, effect sizes)
