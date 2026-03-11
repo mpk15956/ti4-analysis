@@ -266,6 +266,16 @@ BO is excluded from the benchmark. The per-evaluation cost of TI4 map fitness (<
 - **Ablation:** Multi-Jain bottleneck JFI vs optimistic (max-dimension) JFI comparison to demonstrate that the bottleneck formulation catches maps with hidden dimensional imbalance
 - **Compute:** University of Georgia Sapelo2 HPC cluster; run configuration recorded in [`output/sapelo2-run-20260310/run_config.json`](output/sapelo2-run-20260310/run_config.json)
 
+### Analysis Tracks
+
+The benchmark produces two complementary analysis tracks addressing different research audiences:
+
+**Track A — Production algorithm selection (scalar).** Applies the 5:5:3 composite scalarization to every algorithm's final solution (for NSGA-II, the Pareto-front member minimizing the composite score). Compares algorithms via scalar convergence curves, Kruskal-Wallis rank tests, and pairwise Mann-Whitney post-hocs with Bonferroni correction. This track answers the practical question: *which algorithm should the Rust web app call when a user clicks "Generate Map"?* Pipeline: `submit_all.sh` Phase 2 (`benchmark_engine.py`) and Phase 3 (`analyze_benchmark.py`, `plot_statistical_results.py`).
+
+**Track B — Multi-objective landscape characterization (Pareto, future work).** Evaluates NSGA-II's raw Pareto archives using Hypervolume (HV), Inverted Generational Distance Plus (IGD+), and Spacing — the gold-standard multi-objective quality indicators described in [`ACADEMIC_APPROACH.md`](ACADEMIC_APPROACH.md). This track answers the research question: *how rich is the fairness trade-off surface, and does NSGA-II meaningfully explore it?* HV and IGD+ do not require scalarization and therefore avoid the artificial disadvantage that collapsing a Pareto front to a single composite score imposes on a population-based algorithm. This track requires implementing `quality_indicators.py` (not yet present) and is deferred to post-benchmark analysis using saved Pareto archives from the Track A runs.
+
+> **Why the distinction matters.** Collapsing NSGA-II's Pareto front to a single scalar via the same 5:5:3 weight vector that SA explicitly optimizes structurally favours SA in the Track A comparison — SA has spent its entire evaluation budget hill-climbing on that exact objective, while NSGA-II has distributed effort across the full trade-off surface. Track B isolates NSGA-II's true multi-objective performance without this confound.
+
 ---
 
 ## Project Structure

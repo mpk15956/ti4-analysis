@@ -192,9 +192,25 @@ def morans_i(
     # Expected value under null hypothesis
     expected_I = -1 / (n - 1)
 
-    # Variance (simplified formula for row-standardized weights)
-    # Full formula is complex; this is an approximation
-    variance_I = 1 / (n - 1)  # Simplified
+    # Analytical variance under normality assumption (Cliff & Ord, 1981).
+    # S0 = sum of all weights, S1 and S2 are weight-matrix cross-products.
+    S0 = W_matrix.sum()
+    S1 = 0.5 * float(np.sum((W_matrix + W_matrix.T) ** 2))
+    row_plus_col = (
+        np.asarray(W_matrix.sum(axis=1)).ravel()
+        + np.asarray(W_matrix.sum(axis=0)).ravel()
+    )
+    S2 = float(np.sum(row_plus_col ** 2))
+    # Sample kurtosis of deviations
+    m2 = float((x_dev ** 2).sum()) / n
+    m4 = float((x_dev ** 4).sum()) / n
+    kurtosis = m4 / (m2 ** 2) if m2 != 0 else 3.0
+
+    A = n * ((n ** 2 - 3 * n + 3) * S1 - n * S2 + 3 * S0 ** 2)
+    B = kurtosis * (n * (n - 1) * S1 - 2 * n * S2 + 6 * S0 ** 2)
+    C = (n - 1) * (n - 2) * (n - 3) * S0 ** 2
+
+    variance_I = (A - B) / C - expected_I ** 2 if C != 0 else 0.0
 
     return I, expected_I, variance_I
 
@@ -320,18 +336,18 @@ def gravity_model_accessibility(
     beta: float = 2.0
 ) -> float:
     """
-    Calculate accessibility using gravity model.
+    Calculate accessibility using a continuous inverse-distance gravity model.
 
-    The gravity model measures resource accessibility accounting for
-    distance decay: closer resources are more accessible.
+    .. deprecated::
+        This function uses a continuous power-law decay (1/d^beta) which
+        contradicts the discrete step-function decay used in the main
+        optimization loop (see ``Evaluator.get_distance_multiplier``).
+        It is retained **only** for post-hoc comparison against the
+        step-function approach in ``comprehensive_spatial_analysis`` and
+        must NOT be used inside the fitness evaluation loop.
 
     Formula:
         Accessibility = Σⱼ (Vⱼ / dᵢⱼ^β)
-
-    where:
-        Vⱼ = value of system j
-        dᵢⱼ = distance from home i to system j
-        β = distance decay parameter
 
     Args:
         ti4_map: TI4 map object
@@ -342,6 +358,14 @@ def gravity_model_accessibility(
     Returns:
         Accessibility score
     """
+    warnings.warn(
+        "gravity_model_accessibility uses continuous 1/d^beta decay. "
+        "The optimization loop uses discrete step-function decay via "
+        "Evaluator.DISTANCE_MULTIPLIER. This function is for post-hoc "
+        "analysis only.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     accessibility = 0.0
 
     for space in ti4_map.spaces:
@@ -443,10 +467,19 @@ def identify_hotspots(
     """
     Identify resource hot spots and cold spots using Getis-Ord Gi*.
 
+    .. note:: Small-N caveat
+        The default z-score cutoff of 1.96 assumes asymptotic normality of
+        the Gi* statistic. A typical TI4 map has ~37 system tiles, which is
+        borderline for this approximation. Results from this function should
+        be treated as exploratory screening. For publication-quality
+        significance testing, use the conditional-permutation LISA
+        implementation in ``scripts/validate_lisa_proxy.py``.
+
     Args:
         ti4_map: TI4 map object
         evaluator: Evaluator for system values
-        significance_level: Z-score threshold (1.96 = 95% confidence)
+        significance_level: Z-score threshold (default 1.96, ~95% under
+            normal approximation)
 
     Returns:
         List of (coord, Gi*, type) tuples where type is 'hotspot' or 'coldspot'

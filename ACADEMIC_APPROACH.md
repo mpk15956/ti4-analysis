@@ -16,11 +16,18 @@ This repository implements a rigorous academic framework for comparing multi-obj
 
 ## Three Algorithms
 
-| Algorithm | Description | Action Space | Objectives |
-|-----------|-------------|--------------|------------|
-| **G1** | Hill-climbing baseline | Blue tiles only | Minimize balance_gap |
-| **G2** | NSGA-II constrained | Blue tiles only | [balance_gap, \|Moran's I\|, 1-Jain's] |
-| **G3** | NSGA-II unconstrained | All tiles (blue+red) | [balance_gap, \|Moran's I\|, 1-Jain's] |
+| Algorithm | Current ID | Description | Action Space | Objectives |
+|-----------|------------|-------------|--------------|------------|
+| **G1** | `hc` | Hill-climbing baseline | Blue tiles only | Minimize balance_gap |
+| **G2** | `nsga2` | NSGA-II constrained | Blue tiles only | [balance_gap, \|Moran's I\|, 1-Jain's] |
+| **G3** / **G3-D** | `nsga2` | NSGA-II unconstrained | All tiles (blue+red) | [balance_gap, \|Moran's I\|, 1-Jain's] |
+
+> **Naming note:** The production benchmark pipeline (`submit_all.sh`,
+> `benchmark_engine.py`) uses lowercase IDs: `hc`, `sa`, `nsga2`, `ts`, `rs`.
+> Simulated Annealing (`sa`) and Tabu Search (`ts`) were added after the
+> original G-naming scheme and have no G-prefix aliases. The legacy
+> `G1-MO` and `G5` labels (formerly in `experiments/run_final_experiment.py`)
+> are retired.
 
 ## Dependent Variables (Gold-Standard Quality Indicators)
 
