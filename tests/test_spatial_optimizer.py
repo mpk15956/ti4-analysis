@@ -220,7 +220,7 @@ class TestImproveBalanceSpatial:
         """improve_balance_spatial() completes and returns a MultiObjectiveScore."""
         ti4_map, evaluator = _make_four_system_map()
 
-        score, history = improve_balance_spatial(
+        score, history, etb = improve_balance_spatial(
             ti4_map, evaluator, iterations=30, random_seed=42, verbose=False
         )
 
@@ -240,7 +240,7 @@ class TestImproveBalanceSpatial:
         fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
         initial = evaluate_map_multiobjective(ti4_map, evaluator, fast_state=fast_state)
 
-        best, _ = improve_balance_spatial(
+        best, _, _ = improve_balance_spatial(
             ti4_map, evaluator, iterations=100, random_seed=0, verbose=False
         )
 

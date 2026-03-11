@@ -207,7 +207,7 @@ def _validate_seed(job):
                 fs = FastMapState.from_ti4_map(topo, m, evaluator)
             elif algo == "sa":
                 m = initial_map.copy()
-                _, _ = improve_balance_spatial(
+                _, _, _ = improve_balance_spatial(
                     m, evaluator, iterations=sa_iter,
                     initial_acceptance_rate=sa_rate,
                     min_temp=sa_min_temp,
@@ -230,7 +230,7 @@ def _validate_seed(job):
                 fs = FastMapState.from_ti4_map(topo, best_map, evaluator)
             elif algo == "ts":
                 m = initial_map.copy()
-                _, _ = improve_balance_tabu(
+                _, _, _ = improve_balance_tabu(
                     m, evaluator, max_evaluations=ts_iter,
                     random_seed=seed, verbose=False,
                 )
@@ -334,6 +334,7 @@ def main() -> int:
 
     try:
         import pandas as pd
+        from scipy import stats as scipy_stats
         df = pd.read_csv(csv_path)
         print("\n── Summary ──")
         summary = df.groupby("algorithm").agg(
@@ -343,6 +344,88 @@ def main() -> int:
             mean_proxy=("lisa_proxy", "mean"),
         ).round(3)
         print(summary)
+
+        # ── Proxy validation: correlation between continuous proxy and cluster count
+        proxy_vals = df["lisa_proxy"].values
+        sig_counts = df["total_significant"].values
+        valid_mask = np.isfinite(proxy_vals) & np.isfinite(sig_counts)
+        proxy_valid = proxy_vals[valid_mask]
+        sig_valid = sig_counts[valid_mask]
+
+        validation_summary = {}
+
+        if len(proxy_valid) >= 3:
+            spearman_r, spearman_p = scipy_stats.spearmanr(proxy_valid, sig_valid)
+            pearson_r, pearson_p = scipy_stats.pearsonr(proxy_valid, sig_valid)
+
+            print(f"\n── Proxy Correlation with Significant Cluster Count ──")
+            print(f"  Spearman rho = {spearman_r:.4f}  (p = {spearman_p:.2e})")
+            print(f"  Pearson  r   = {pearson_r:.4f}  (p = {pearson_p:.2e})")
+
+            validation_summary["spearman_rho"] = round(float(spearman_r), 6)
+            validation_summary["spearman_p"] = float(spearman_p)
+            validation_summary["pearson_r"] = round(float(pearson_r), 6)
+            validation_summary["pearson_p"] = float(pearson_p)
+
+            # Precision analysis: at various proxy thresholds, what fraction have 0 clusters?
+            thresholds = [0.5, 1.0, 2.0, 3.0, 5.0]
+            print(f"\n── Precision Analysis (proxy < threshold → zero significant clusters?) ──")
+            precision_results = []
+            for t in thresholds:
+                below = proxy_valid < t
+                if below.sum() == 0:
+                    continue
+                n_below = int(below.sum())
+                n_zero_sig = int((sig_valid[below] == 0).sum())
+                precision = n_zero_sig / n_below
+                print(f"  proxy < {t:.1f}: {n_zero_sig}/{n_below} have 0 clusters "
+                      f"(precision = {precision:.3f})")
+                precision_results.append({
+                    "threshold": t,
+                    "n_below": n_below,
+                    "n_zero_significant": n_zero_sig,
+                    "precision": round(precision, 6),
+                })
+            validation_summary["precision_analysis"] = precision_results
+
+            # Scatter plot: proxy vs significant cluster count
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(figsize=(8, 6))
+                for algo in sorted(df["algorithm"].unique()):
+                    mask = df["algorithm"] == algo
+                    ax.scatter(
+                        df.loc[mask, "lisa_proxy"],
+                        df.loc[mask, "total_significant"],
+                        alpha=0.6, label=algo.upper(), s=30,
+                    )
+                ax.set_xlabel("LSAP Continuous Proxy (sum of positive local I)")
+                ax.set_ylabel("Significant Clusters (permutation test, p < 0.05)")
+                ax.set_title(
+                    f"Proxy Validation: Spearman ρ = {spearman_r:.3f}, "
+                    f"Pearson r = {pearson_r:.3f}"
+                )
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                scatter_path = run_dir / "proxy_validation_scatter.png"
+                fig.savefig(scatter_path, dpi=150, bbox_inches="tight")
+                plt.close(fig)
+                print(f"\n  Scatter plot → {scatter_path}")
+            except Exception as plot_err:
+                print(f"  Scatter plot skipped: {plot_err}")
+
+        validation_summary["n_observations"] = int(len(proxy_valid))
+        validation_summary["per_algorithm"] = summary.to_dict(orient="index")
+
+        import json
+        summary_json_path = run_dir / "proxy_validation_summary.json"
+        with open(summary_json_path, "w") as jf:
+            json.dump(validation_summary, jf, indent=2, default=str)
+        print(f"  Validation JSON → {summary_json_path}")
+
     except ImportError:
         pass
 

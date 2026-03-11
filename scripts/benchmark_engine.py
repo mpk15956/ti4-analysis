@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--players",     type=int, default=6,      help="Number of players")
     p.add_argument("--output-dir",  type=str, default="output", help="Root output directory")
     p.add_argument("--algorithms",  type=str, default="hc,sa,nsga2",
-                   help="Comma-separated algorithms to run (hc, sa, nsga2, ts, rs)")
+                   help="Comma-separated algorithms to run (hc, sa, sga, nsga2, ts, rs)")
     p.add_argument("--workers",     type=int, default=1,
                    help="Parallel workers (default: 1 = sequential)")
     p.add_argument("--ts-tenure",   type=int, default=None,
@@ -61,6 +61,12 @@ def parse_args() -> argparse.Namespace:
                    help="NSGA-II mutation_rate (default: 0.05)")
     p.add_argument("--nsga-warm",   type=float, default=0.10,
                    help="NSGA-II warm_fraction (default: 0.10)")
+    p.add_argument("--sga-blob",    type=float, default=0.5,
+                   help="SGA blob_fraction (default: 0.5)")
+    p.add_argument("--sga-mut",     type=float, default=0.05,
+                   help="SGA mutation_rate (default: 0.05)")
+    p.add_argument("--sga-warm",    type=float, default=0.10,
+                   help="SGA warm_fraction (default: 0.10)")
     p.add_argument("--budgets",     type=str, default=None,
                    help="Comma-separated evaluation budgets for convergence profile "
                         "(e.g. 1000,5000,10000,25000).  When set, overrides "
@@ -77,6 +83,7 @@ CSV_FIELDS = [
     "seed", "algorithm", "budget",
     "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
     "lisa_penalty", "composite_score", "elapsed_sec", "front_size",
+    "evals_to_best",
 ]
 
 
@@ -87,6 +94,7 @@ def make_row(
     elapsed: float,
     front_size: int,
     budget: int = 0,
+    evals_to_best: int = -1,
 ) -> Dict:
     return {
         "seed":           seed,
@@ -101,6 +109,7 @@ def make_row(
         "composite_score":round(float(score.composite_score()),  4),
         "elapsed_sec":    round(elapsed,                          2),
         "front_size":     front_size,
+        "evals_to_best":  evals_to_best,
     }
 
 
@@ -112,6 +121,7 @@ def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0) -
         "jfi_influence": float("nan"), "lisa_penalty": float("nan"),
         "composite_score": float("nan"),
         "elapsed_sec": round(elapsed, 2), "front_size": -1,
+        "evals_to_best": -1,
     }
 
 
@@ -133,7 +143,7 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
     print("=" * len(header))
     print(header)
     print("-" * len(header))
-    for algo in ("rs", "hc", "sa", "nsga2", "ts"):
+    for algo in ("rs", "hc", "sa", "sga", "nsga2", "ts"):
         if algo not in accum:
             continue
         d = accum[algo]
@@ -170,7 +180,8 @@ def _run_seed(job):
     global _evaluator
     (seed, algos_list, budget, hc_iter, sa_iter, nsga_gen,
      players, sa_rate, sa_min_temp, nsga_pop, nsga_blob,
-     nsga_mut, nsga_warm, ts_tenure) = job
+     nsga_mut, nsga_warm, ts_tenure,
+     sga_blob, sga_mut, sga_warm) = job
 
     algos = set(algos_list)
 
@@ -182,12 +193,14 @@ def _run_seed(job):
         improve_balance_spatial, evaluate_map_multiobjective,
     )
     from ti4_analysis.algorithms.nsga2_optimizer import nsga2_optimize
+    from ti4_analysis.algorithms.sga_optimizer import sga_optimize
     from ti4_analysis.algorithms.tabu_search_optimizer import improve_balance_tabu
     from ti4_analysis.algorithms.map_topology import MapTopology
     from ti4_analysis.algorithms.fast_map_state import FastMapState
 
     evaluator = _evaluator
     rows = []
+    _pareto_archives = []
     seed_start = time.time()
 
     try:
@@ -207,7 +220,8 @@ def _run_seed(job):
             best_rs_score = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs_base)
             rng_rs = np.random.default_rng(seed)
             S = len(topo.swappable_indices)
-            for _ in range(budget - 1):
+            rs_etb = 0
+            for ev in range(1, budget):
                 fs = fs_base.clone()
                 perm = rng_rs.permutation(S)
                 for i in range(S - 1, 0, -1):
@@ -216,8 +230,10 @@ def _run_seed(job):
                 candidate = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs)
                 if candidate.composite_score() < best_rs_score.composite_score():
                     best_rs_score = candidate
+                    rs_etb = ev
                 del fs
-            rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget))
+            rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
+                                 evals_to_best=rs_etb))
             del rs_map, topo, fs_base
 
         if "hc" in algos:
@@ -237,7 +253,7 @@ def _run_seed(job):
         if "sa" in algos:
             sa_map = initial_map.copy()
             t0 = time.time()
-            sa_score, _ = improve_balance_spatial(
+            sa_score, _, sa_etb = improve_balance_spatial(
                 sa_map, evaluator,
                 iterations=sa_iter,
                 initial_acceptance_rate=sa_rate,
@@ -245,7 +261,8 @@ def _run_seed(job):
                 random_seed=seed,
                 verbose=False,
             )
-            rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget))
+            rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
+                                 evals_to_best=sa_etb))
             del sa_map
 
         if "nsga2" in algos:
@@ -262,29 +279,66 @@ def _run_seed(job):
                 verbose=False,
             )
             best_score = min(front, key=lambda x: x[1].composite_score())[1]
-            rows.append(make_row(seed, "nsga2", best_score, time.time() - t0, len(front), budget))
+            rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
+                                 len(front), budget))
+
+            # Save Pareto archive for Track B quality indicators
+            archive_rows = []
+            for _, s in front:
+                archive_rows.append({
+                    "jains_index": round(float(s.jains_index), 6),
+                    "morans_i": round(float(s.morans_i), 6),
+                    "lisa_penalty": round(float(s.lisa_penalty), 6),
+                    "composite_score": round(float(s.composite_score()), 6),
+                })
+            _pareto_archives.append((seed, budget, archive_rows))
             del nsga_map, front
+
+        if "sga" in algos:
+            sga_map = initial_map.copy()
+            t0 = time.time()
+            sga_gen = max(1, budget // nsga_pop)
+            sga_score, sga_history = sga_optimize(
+                sga_map, evaluator,
+                generations=sga_gen,
+                population_size=nsga_pop,
+                blob_fraction=sga_blob,
+                mutation_rate=sga_mut,
+                warm_fraction=sga_warm,
+                random_seed=seed,
+                verbose=False,
+            )
+            sga_etb = 0
+            best_c = float('inf')
+            for evals, sc in sga_history:
+                if sc.composite_score() < best_c:
+                    best_c = sc.composite_score()
+                    sga_etb = evals
+            rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
+                                 evals_to_best=sga_etb))
+            del sga_map
 
         if "ts" in algos:
             ts_map = initial_map.copy()
             t0 = time.time()
-            ts_score, _ = improve_balance_tabu(
+            ts_score, _, ts_etb = improve_balance_tabu(
                 ts_map, evaluator,
                 max_evaluations=budget,
                 tabu_tenure=ts_tenure,
                 random_seed=seed,
                 verbose=False,
             )
-            rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget))
+            rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
+                                 evals_to_best=ts_etb))
             del ts_map
 
-        return True, rows
+        return True, rows, _pareto_archives
 
     except Exception as exc:
         elapsed_err = time.time() - seed_start
         print(f"seed={seed:4d}  ERROR after {elapsed_err:.1f}s: {exc}", file=sys.stderr)
         error_rows = [make_error_row(seed, algo, elapsed_err, budget) for algo in algos]
-        return False, error_rows
+        return False, error_rows, []
 
     finally:
         gc.collect()
@@ -297,7 +351,7 @@ def _run_seed(job):
 def main() -> int:
     args = parse_args()
     algos = {a.strip().lower() for a in args.algorithms.split(",")}
-    valid = {"hc", "sa", "nsga2", "ts", "rs"}
+    valid = {"hc", "sa", "sga", "nsga2", "ts", "rs"}
     unknown = algos - valid
     if unknown:
         print(f"ERROR: Unknown algorithms: {unknown}. Valid: {valid}", file=sys.stderr)
@@ -389,7 +443,8 @@ def main() -> int:
                 jobs = [
                     (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
                      args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
-                     args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure)
+                     args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure,
+                     args.sga_blob, args.sga_mut, args.sga_warm)
                     for seed in range(args.base_seed, args.base_seed + args.seeds)
                 ]
 
@@ -397,10 +452,23 @@ def main() -> int:
                 budget_start = time.time()
                 mapper = pool.imap_unordered if pool else map
 
-                for ok, rows in mapper(_run_seed, jobs):
+                pareto_archive_dir = run_dir / "pareto_archives"
+                if "nsga2" in algos:
+                    pareto_archive_dir.mkdir(parents=True, exist_ok=True)
+
+                for ok, rows, archives in mapper(_run_seed, jobs):
                     for row in rows:
                         writer.writerow(row)
                     csv_file.flush()
+
+                    for (a_seed, a_budget, a_rows) in archives:
+                        a_path = pareto_archive_dir / f"pareto_archive_seed{a_seed}_b{a_budget}.csv"
+                        with open(a_path, "w", newline="") as af:
+                            aw = csv.DictWriter(af, fieldnames=["jains_index", "morans_i",
+                                                                 "lisa_penalty", "composite_score"])
+                            aw.writeheader()
+                            for ar in a_rows:
+                                aw.writerow(ar)
 
                     if ok:
                         seeds_done += 1
@@ -417,7 +485,7 @@ def main() -> int:
                     seed_val = rows[0]["seed"] if rows else "?"
 
                     parts = [f"  seed={seed_val:>4}"]
-                    for a in ("rs", "hc", "sa", "nsga2", "ts"):
+                    for a in ("rs", "hc", "sa", "sga", "nsga2", "ts"):
                         matching = [r for r in rows if r["algorithm"] == a]
                         if matching and not math.isnan(matching[0]["composite_score"]):
                             parts.append(f"{a}={matching[0]['composite_score']:.3f}")

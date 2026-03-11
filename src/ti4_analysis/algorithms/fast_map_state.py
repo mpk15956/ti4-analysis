@@ -196,14 +196,22 @@ class FastMapState:
 
     def lisa_penalty(self) -> float:
         """
-        LISA penalty: sum of positive variance-normalised local Moran's I values.
+        Local Spatial Autocorrelation Penalty (LSAP): sum of positive
+        variance-normalised local Moran's I_i values.
+
+        This is a continuous heuristic proxy for significance-tested LISA
+        (Anselin, 1995).  Unlike classical LISA, no permutation test is
+        applied during optimisation; all positive I_i contribute to a smooth
+        fitness signal suitable for gradient-free metaheuristics.  Post-hoc
+        validation (validate_lisa_proxy.py) confirms that minimising this
+        proxy eliminates statistically significant clusters.
 
         local_I[i] = z_dev[i] * (W @ z_dev)[i] / m2
         where m2 = Σ(z_dev²) / n  (the spatial variance).
 
         Dividing by m2 makes local_I dimensionless and ensures Σ local_I ≈ n × I_global.
         Without this normalisation the values scale with the square of system values,
-        causing LISA to dominate the composite score at any fixed weight.
+        causing LSAP to dominate the composite score at any fixed weight.
 
         Positive local_I indicates H-H or L-L spatial clusters (resource
         hoarding or resource deserts). Negative local_I indicates spatial

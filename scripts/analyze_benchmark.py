@@ -124,7 +124,7 @@ METRICS = [
     "jfi_resources", "jfi_influence",
     "lisa_penalty", "balance_gap",
 ]
-ALGO_ORDER = ["rs", "hc", "sa", "nsga2", "ts"]
+ALGO_ORDER = ["rs", "hc", "sa", "sga", "nsga2", "ts"]
 
 
 def load_and_validate(csv_path: Path, budget: int = None) -> pd.DataFrame:
@@ -690,6 +690,45 @@ def main() -> int:
                         f"{r['pair']}: {r['winner']} (A={r['vda_A']:.3f})"
                     )
                 print(f"     {config_name}: {', '.join(summary_parts)}")
+
+    # ── Convergence analysis (evals_to_best) ──────────────────────────────
+    if "evals_to_best" in df.columns:
+        etb = df[df["evals_to_best"] >= 0].copy()
+        if not etb.empty:
+            print("\n── Convergence Analysis (evals_to_best) ──")
+            budgets_present = sorted(etb["budget"].unique())
+            for budget in budgets_present:
+                b_df = etb[etb["budget"] == budget]
+                print(f"\n  Budget = {budget:,}:")
+                for algo in ALGO_ORDER:
+                    a_df = b_df[b_df["algorithm"] == algo]
+                    if a_df.empty:
+                        continue
+                    med_etb = a_df["evals_to_best"].median()
+                    pct_of_budget = 100.0 * med_etb / max(1, budget)
+                    print(f"    {algo:<6s}: median evals_to_best = {med_etb:,.0f} "
+                          f"({pct_of_budget:.1f}% of budget)")
+
+            conv_path = out_dir / "convergence_analysis.csv"
+            conv_rows = []
+            for budget in budgets_present:
+                b_df = etb[etb["budget"] == budget]
+                for algo in ALGO_ORDER:
+                    a_df = b_df[b_df["algorithm"] == algo]
+                    if a_df.empty:
+                        continue
+                    conv_rows.append({
+                        "budget": budget,
+                        "algorithm": algo,
+                        "median_evals_to_best": float(a_df["evals_to_best"].median()),
+                        "mean_evals_to_best": float(a_df["evals_to_best"].mean()),
+                        "pct_budget_used": round(
+                            100.0 * a_df["evals_to_best"].median() / max(1, budget), 2),
+                        "median_composite": float(a_df["composite_score"].median()),
+                    })
+            conv_df = pd.DataFrame(conv_rows)
+            conv_df.to_csv(conv_path, index=False)
+            print(f"\n  Saved → {conv_path}")
 
     # Multi-Jain ablation
     if args.ablation:

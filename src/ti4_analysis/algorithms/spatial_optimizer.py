@@ -5,13 +5,19 @@ Implements Pareto optimization across three canonical objectives:
 
     1. 1 − jains_index  (minimize) — distributive equity (Jain's Fairness Index)
     2. abs(morans_i)    (minimize) — global spatial clustering
-    3. lisa_penalty     (minimize) — local H-H / L-L cluster penalty
+    3. lisa_penalty     (minimize) — Local Spatial Autocorrelation Penalty (LSAP)
 
 Decomposition: JFI captures the *magnitude* of resource disparity (distributive
-justice); Moran's I and LISA capture the *spatial topology* of that disparity
+justice); Moran's I and LSAP capture the *spatial topology* of that disparity
 (spatial justice). These are orthogonal analytical dimensions. Within the
 distributive axis, JFI replaces balance_gap (max−min range) as the axiomatic,
 scale-invariant measure recommended by peer-reviewed literature.
+
+LSAP (lisa_penalty) is a continuous heuristic proxy for significance-tested
+LISA (Anselin, 1995). It sums all positive variance-normalised local Moran's
+I_i values without permutation-test significance filtering, providing a smooth
+fitness signal for metaheuristic optimisation. Post-hoc validation confirms
+that minimising this proxy eliminates statistically significant clusters.
 
 balance_gap is retained as a stored attribute for display and reporting only.
 """
@@ -36,7 +42,7 @@ class MultiObjectiveScore:
     - Balance gap (lower is better) — display only
     - Spatial clustering / Moran's I (lower absolute value is better)
     - Multi-Jain Fairness Index (higher is better): min(JFI_resources, JFI_influence)
-    - LISA penalty (lower is better)
+    - LSAP / lisa_penalty (lower is better) — continuous proxy for LISA
     """
 
     def __init__(
@@ -77,13 +83,13 @@ class MultiObjectiveScore:
           - 1 − jains_index ∈ [0, 1]   (JFI ∈ [1/H, 1])
           - lisa_norm        ∈ [0, 1]   (see derivation below)
 
-        LISA normalization derivation:
+        LSAP normalization derivation:
             local_I[i] = z_dev[i] * (W @ z_dev)[i] / m2  (variance-normalized).
             For row-standardized W, max single local_I = n − 1 (one extreme
             value surrounded by identical-deviation neighbours). At most n
             positions contribute positively, so:
                 sum_positive_local_I  ≤  n × (n − 1)
-            Dividing by n × (n − 1) maps the LISA penalty to [0, 1].
+            Dividing by n × (n − 1) maps the LSAP to [0, 1].
 
         Weights sum to 1.0 (ratios 5 : 5 : 3 ≈ 0.385 : 0.385 : 0.231).
         """
@@ -205,8 +211,9 @@ def improve_balance_spatial(
         initial_acceptance_rate: Target P(accept worse move) at T₀ (e.g. 0.80)
 
     Returns:
-        Tuple of (best_score, history)
+        Tuple of (best_score, history, evals_to_best)
         history is a list of (iteration, score) tuples
+        evals_to_best is the iteration at which the incumbent was last improved
     """
     if random_seed is not None:
         random.seed(random_seed)
@@ -223,6 +230,7 @@ def improve_balance_spatial(
     # Initial evaluation
     current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
     best_score = current_score
+    best_eval = 0
     history = [(0, current_score)]
 
     # ── Calibrate initial temperature ────────────────────────────────────────
@@ -273,6 +281,7 @@ def improve_balance_spatial(
             current_score = new_score
             if new_score.composite_score() < best_score.composite_score():
                 best_score = new_score
+                best_eval = i
                 if verbose and i % 10 == 0:
                     print(f"Iteration {i} [T={temperature:.4f}]: {new_score}")
         elif temperature > min_temp and random.random() < math.exp(-delta / temperature):
@@ -301,7 +310,7 @@ def improve_balance_spatial(
         print(f"Final best: {best_score}")
 
     history.append((last_i, best_score))
-    return best_score, history
+    return best_score, history, best_eval
 
 
 def pareto_optimize(
@@ -493,7 +502,7 @@ def compare_optimizers(
     # Spatial optimizer
     print("\nRunning SPATIAL optimizer...")
     spatial_map = ti4_map.copy()
-    spatial_score, spatial_history = improve_balance_spatial(
+    spatial_score, spatial_history, _ = improve_balance_spatial(
         spatial_map, evaluator, iterations=iterations, random_seed=random_seed
     )
 

@@ -1,18 +1,34 @@
-# Tabu Search Exclusion Justification
+# Tabu Search Inclusion as Methodological Control
 
 **For insertion into the paper's Methodology / Algorithm Selection section.**
 
 ---
 
-## Why Tabu Search is excluded from the benchmark
+## Why Tabu Search is included in the benchmark
 
 Grichshenko et al. (2020) demonstrated that Tabu Search (TS) outperforms steepest-ascent hill-climbing for map generation in *Terra Mystica*, a related tabletop game with a hexagonal spatial layout. TS escapes local optima via a deterministic tabu list that prevents the algorithm from revisiting recently explored configurations, enabling non-improving moves that a greedy hill-climber would reject.
 
-Our SA implementation addresses the same local-optima escape mechanism through a complementary stochastic pathway: the Metropolis acceptance criterion `P(accept) = exp(-Δ/T)` probabilistically accepts worsening moves at a rate controlled by temperature. With `T₀` calibrated to an 80% initial acceptance rate (Section X.Y), SA permits approximately four out of five uphill moves during early exploration — functionally equivalent to TS's deterministic acceptance of non-improving moves, but without requiring tuning of tabu tenure or neighbourhood structure. As temperature decays geometrically toward `min_temp`, SA smoothly transitions from broad exploration to greedy refinement within a single control parameter (the iteration budget), whereas TS requires separate tuning of tabu list length, aspiration criteria, and neighbourhood size.
+Our SA implementation addresses the same local-optima escape mechanism through a complementary stochastic pathway: the Metropolis acceptance criterion `P(accept) = exp(-Δ/T)` probabilistically accepts worsening moves at a rate controlled by temperature. With `T₀` calibrated to an 80% initial acceptance rate (Section X.Y), SA permits approximately four out of five uphill moves during early exploration — functionally analogous to TS's deterministic acceptance of non-improving moves, but without requiring tuning of tabu tenure or neighbourhood structure.
 
-Critically, the comparison reported by Grichshenko et al. was TS versus steepest-ascent hill-climbing — not TS versus SA. Steepest-ascent HC cannot escape any local optimum and serves as a weaker baseline than the SA implemented here. No published evidence demonstrates that TS produces superior map configurations to SA on combinatorial tile-placement problems when both algorithms receive the same evaluation budget.
+### Rationale for inclusion as a methodological control
 
-We therefore exclude TS from the primary benchmark and retain it as a candidate for future comparative work. Should reviewers require a direct comparison, TS is implementable as a variant of our existing HC module by augmenting the swap-acceptance loop with a bounded deque of recently visited (s₁, s₂) pairs.
+Including TS in the benchmark addresses the following research question: **Is SA's stochastic escape mechanism redundant with TS's deterministic memory, or do the two approaches find qualitatively different solutions?**
+
+The Terra Mystica PCG literature (Grichshenko et al., 2020) demonstrated TS superiority over steepest-ascent hill-climbing, but this comparison is not informative about SA because steepest-ascent HC cannot escape *any* local optimum and serves as a weaker baseline than SA. No published evidence demonstrates that TS produces superior map configurations to SA on combinatorial tile-placement problems when both algorithms receive the same evaluation budget.
+
+By including TS with Optuna-tuned `tabu_tenure` (tuned symmetrically with SA's and NSGA-II's hyperparameters on a disjoint seed range), the benchmark produces one of three outcomes:
+
+1. **TS ≈ SA at convergence:** SA's stochastic escape is functionally equivalent to TS's deterministic memory for this problem class. SA's lower per-iteration cost (1 evaluation vs C(S,2)) makes it the strictly superior production algorithm.
+
+2. **TS > SA at high budgets:** TS's exhaustive neighbourhood scan uncovers optima that SA's random walk misses. This would justify TS as the production algorithm despite higher per-step cost, or motivate a hybrid SA-TS approach.
+
+3. **SA > TS at all budgets:** SA's trajectory depth advantage (1,000 sequential steps vs TS's ≈ 2 full iterations at budget 1,000) is essential for this landscape's ruggedness. TS's breadth-per-step does not compensate for its shallow decision history.
+
+The multi-budget saturation study (1k–500k evaluations) captures the crossover point — if one exists — where TS's per-decision superiority overcomes SA's trajectory depth advantage.
+
+### Evaluation budget accounting
+
+Each candidate 2-swap costs one evaluation. A single TS iteration evaluates all C(S,2) ≈ 435 pairs (for S = 30 swappable positions), making TS the evaluation-heaviest algorithm per iteration. At budget 1,000, TS completes only ≈ 2 full iterations versus SA's 1,000 sequential steps — the depth-vs-breadth tradeoff that the saturation study characterises.
 
 ### References
 

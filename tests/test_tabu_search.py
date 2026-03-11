@@ -69,7 +69,7 @@ class TestTabuSearch:
         fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
         initial = evaluate_map_multiobjective(ti4_map, evaluator, fast_state=fast_state)
 
-        best, _ = improve_balance_tabu(
+        best, _, _ = improve_balance_tabu(
             ti4_map, evaluator, max_evaluations=500, random_seed=0, verbose=False
         )
 
@@ -82,7 +82,7 @@ class TestTabuSearch:
         """
         ti4_map, evaluator = _make_four_system_map()
 
-        score, history = improve_balance_tabu(
+        score, history, _ = improve_balance_tabu(
             ti4_map, evaluator, max_evaluations=50, random_seed=7,
             verbose=False, tabu_tenure=5
         )
@@ -95,10 +95,10 @@ class TestTabuSearch:
         ti4_map1, evaluator = _make_four_system_map()
         ti4_map2 = ti4_map1.copy()
 
-        score1, _ = improve_balance_tabu(
+        score1, _, _ = improve_balance_tabu(
             ti4_map1, evaluator, max_evaluations=200, random_seed=99, verbose=False
         )
-        score2, _ = improve_balance_tabu(
+        score2, _, _ = improve_balance_tabu(
             ti4_map2, evaluator, max_evaluations=200, random_seed=99, verbose=False
         )
 
@@ -110,7 +110,7 @@ class TestTabuSearch:
         """Total evaluations should not exceed max_evaluations."""
         ti4_map, evaluator = _make_four_system_map()
 
-        _, history = improve_balance_tabu(
+        _, history, _ = improve_balance_tabu(
             ti4_map, evaluator, max_evaluations=50, random_seed=42, verbose=False
         )
 
@@ -122,7 +122,7 @@ class TestTabuSearch:
         """TS result should have valid per-dimension JFI from Multi-Jain."""
         ti4_map, evaluator = _make_four_system_map()
 
-        score, _ = improve_balance_tabu(
+        score, _, _ = improve_balance_tabu(
             ti4_map, evaluator, max_evaluations=200, random_seed=42, verbose=False
         )
 

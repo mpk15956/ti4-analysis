@@ -44,11 +44,11 @@ plt.rcParams.update({
     "savefig.pad_inches": 0.05,
 })
 
-ALGO_NAMES = {"rs": "RS", "hc": "HC", "sa": "SA", "nsga2": "NSGA-II", "ts": "TS"}
-ALGO_ORDER = ["rs", "hc", "sa", "nsga2", "ts"]
+ALGO_NAMES = {"rs": "RS", "hc": "HC", "sa": "SA", "sga": "SGA", "nsga2": "NSGA-II", "ts": "TS"}
+ALGO_ORDER = ["rs", "hc", "sa", "sga", "nsga2", "ts"]
 PALETTE = {
     "RS": "#937860", "HC": "#4C72B0", "SA": "#DD8452",
-    "NSGA-II": "#55A868", "TS": "#C44E52",
+    "SGA": "#8172B2", "NSGA-II": "#55A868", "TS": "#C44E52",
 }
 
 
@@ -296,6 +296,61 @@ def fig5_effect_forest(out_dir: Path, fmt: str):
 
 
 # ---------------------------------------------------------------------------
+# Figure 6: Convergence curves (composite score vs budget)
+# ---------------------------------------------------------------------------
+
+def fig6_convergence_curves(csv_path: Path, out_dir: Path, fmt: str):
+    """Composite score vs evaluation budget with 95% CI bands per algorithm."""
+    full_df = pd.read_csv(csv_path)
+    if "budget" not in full_df.columns:
+        print("  fig6_convergence_curves: SKIPPED (no budget column)")
+        return
+
+    budgets = sorted(full_df["budget"].unique())
+    if len(budgets) < 2:
+        print("  fig6_convergence_curves: SKIPPED (need >= 2 budget levels)")
+        return
+
+    algos = [a for a in ALGO_ORDER if a in full_df["algorithm"].unique()]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for algo in algos:
+        a_df = full_df[full_df["algorithm"] == algo]
+        medians = []
+        ci_lo = []
+        ci_hi = []
+        valid_budgets = []
+        for b in budgets:
+            b_df = a_df[a_df["budget"] == b]["composite_score"].dropna()
+            if len(b_df) < 3:
+                continue
+            valid_budgets.append(b)
+            medians.append(b_df.median())
+            q25 = b_df.quantile(0.025)
+            q975 = b_df.quantile(0.975)
+            ci_lo.append(q25)
+            ci_hi.append(q975)
+
+        if not valid_budgets:
+            continue
+        name = ALGO_NAMES.get(algo, algo.upper())
+        color = PALETTE.get(name, "gray")
+        ax.plot(valid_budgets, medians, "o-", label=name, color=color, linewidth=2)
+        ax.fill_between(valid_budgets, ci_lo, ci_hi, alpha=0.15, color=color)
+
+    ax.set_xlabel("Evaluation Budget")
+    ax.set_ylabel("Composite Score (median)")
+    ax.set_xscale("log")
+    ax.set_title("Convergence Curves (95% CI Bands)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_dir / f"fig6_convergence_curves.{fmt}")
+    plt.close(fig)
+    print(f"  fig6_convergence_curves.{fmt}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -316,6 +371,7 @@ def main() -> int:
     fig3_convergence(args.csv, viz_dir, args.format)
     fig4_seed_heatmap(df, viz_dir, args.format)
     fig5_effect_forest(viz_dir, args.format)
+    fig6_convergence_curves(args.csv, viz_dir, args.format)
 
     print(f"\nAll figures saved to {viz_dir}/")
     return 0

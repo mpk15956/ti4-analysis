@@ -58,8 +58,9 @@ def improve_balance_tabu(
             Default: ceil(sqrt(S)), a standard heuristic (Glover 1989).
 
     Returns:
-        Tuple of (best_score, history)
+        Tuple of (best_score, history, evals_to_best)
         history is a list of (evaluation_count, score) tuples
+        evals_to_best is the evaluation count when the incumbent was last improved
     """
     if random_seed is not None:
         random.seed(random_seed)
@@ -82,6 +83,7 @@ def improve_balance_tabu(
     current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
     best_score = current_score
     best_composite = best_score.composite_score()
+    best_etb = 0
     history: List[Tuple[int, MultiObjectiveScore]] = [(0, current_score)]
 
     # (min_idx, max_idx) → iteration number when the tabu expires
@@ -160,6 +162,7 @@ def improve_balance_tabu(
         if current_score.composite_score() < best_composite:
             best_score = current_score
             best_composite = best_score.composite_score()
+            best_etb = total_evals
             if verbose:
                 print(
                     f"  Iter {iteration} (evals={total_evals}): "
@@ -226,6 +229,7 @@ def improve_balance_tabu(
             if current_score.composite_score() < best_composite:
                 best_score = current_score
                 best_composite = best_score.composite_score()
+                best_etb = total_evals
             history.append((total_evals, current_score))
 
     if verbose:
@@ -233,4 +237,4 @@ def improve_balance_tabu(
         print(f"Final best: {best_score}")
 
     history.append((total_evals, best_score))
-    return best_score, history
+    return best_score, history, best_etb

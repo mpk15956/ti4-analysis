@@ -6,7 +6,7 @@ Rigorous spatial-statistical evaluation of map balancing algorithms for *Twiligh
 
 ## Abstract
 
-Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. This project formalizes four optimization algorithms — greedy hill-climbing (HC), simulated annealing (SA), NSGA-II, and Tabu Search (TS) — against a composite objective that integrates Multi-Jain Fairness (bottleneck JFI across resource dimensions), Moran's I spatial autocorrelation, and a LISA-based local cluster penalty. The benchmark includes a multi-budget saturation study (1k–100k evaluations) to identify whether population-based (NSGA-II) or memory-based (TS) methods eventually surpass SA when given sufficient evaluation budget, or whether all algorithms converge to the same near-optimal plateau.
+Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. This project formalizes six optimization algorithms — Random Search (RS), greedy hill-climbing (HC), simulated annealing (SA), a single-objective genetic algorithm (SGA), NSGA-II, and Tabu Search (TS) — against a composite objective that integrates Multi-Jain Fairness (bottleneck JFI across resource dimensions), Moran's I spatial autocorrelation, and a Local Spatial Autocorrelation Penalty (LSAP). The benchmark includes a multi-budget saturation study (1k–500k evaluations) to identify whether population-based (NSGA-II, SGA) or memory-based (TS) methods eventually surpass SA when given sufficient evaluation budget, or whether all algorithms converge to the same near-optimal plateau. SGA isolates the algorithmic architecture comparison: SA vs SGA tests Markov chain vs population-based search on the same scalar objective; SGA vs NSGA-II tests single-objective vs multi-objective on the same operators.
 
 *(The benchmark experiment reported in Key Results pre-dates this formulation and used balance gap as the distributional equity metric; see the version note in Methods.)*
 
@@ -85,7 +85,7 @@ This pattern is consistent with the computational structure of each algorithm. A
 
 Map optimization is framed as minimization of a weighted composite score over three objectives:
 
-$$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot |I| + w_3 \cdot \frac{\text{LISA}_+}{n(n-1)}$$
+$$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot |I| + w_3 \cdot \frac{\text{LSAP}}{n(n-1)}$$
 
 where $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This is inspired by Dominant Resource Fairness (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension.
 
@@ -138,7 +138,7 @@ With these defaults, most paths traverse only blue/planet and empty-space hexes,
 
 For Multi-Jain per-dimension JFI, the same weight matrix is applied to raw planet resources and raw planet influence separately (before any evaluator scalarization), producing vectors $\mathbf{r}$ and $\mathbf{i}$ for the bottleneck JFI computation.
 
-> **Planned: distance-weight sensitivity analysis.** The `DISTANCE_MULTIPLIER` table is community-calibrated, not theoretically derived. A post-hoc sensitivity analysis will perturb the table entries (e.g., `[6,6,5,3,3,2,1]`, `[6,6,6,6,4,2,1]`) and verify that algorithm rankings remain stable under alternative distance decay assumptions, confirming that the benchmark conclusions are not brittle to the specific weight values.
+> **Distance-weight sensitivity analysis (implemented).** The `DISTANCE_MULTIPLIER` table is community-calibrated, not theoretically derived. `scripts/distance_weight_sensitivity.py` tests 6 alternative weight tables (flat_nearby, steep_decay, linear, inverse_distance, binary_reachable, plus the baseline) on a representative subset of seeds and verifies that algorithm rankings remain stable under alternative distance decay assumptions via Friedman + Wilcoxon tests and Kendall's tau rank correlation. This confirms that the benchmark conclusions are not brittle to the specific weight values.
 
 ---
 
@@ -164,19 +164,19 @@ $$I = \frac{N}{W} \cdot \frac{\sum_i \sum_j w_{ij}(x_i - \bar{x})(x_j - \bar{x})
 
 Spatial weights $w_{ij}$ are binary adjacency weights, row-standardized so that each row of $\mathbf{W}$ sums to 1.0 (implemented in [`src/ti4_analysis/algorithms/map_topology.py`](src/ti4_analysis/algorithms/map_topology.py), lines 208–212). Row-standardization mitigates boundary effects on the bounded TI4 hex grid: outer-ring systems have fewer neighbours (typically 2–3) than inner systems (up to 6), which would otherwise systematically deflate their spatial lag values. After standardization, the spatial lag $(\mathbf{W}\mathbf{z})_i$ at each position is a proper weighted average of its neighbours regardless of neighbour count, ensuring that edge systems are not artificially penalized or advantaged in the Moran's I and LISA computations. Zero-sum rows (fully isolated hexes, if any) are guarded against by substituting a denominator of 1.0 to avoid division by zero.
 
-#### LISA Penalty
+#### Local Spatial Autocorrelation Penalty (LSAP)
 
-Local Indicators of Spatial Association (Anselin, 1995). For each system $i$, the variance-normalised local Moran statistic is:
+The LSAP (`lisa_penalty` in code) is a variance-normalized local spatial penalty that *proxies* significance-tested LISA (Anselin, 1995). For each system $i$, the variance-normalised local Moran statistic is:
 
 $$I_i = \frac{(x_i - \bar{x}) \sum_j w_{ij}(x_j - \bar{x})}{m_2}, \quad \text{where } m_2 = \frac{\sum(x_i - \bar{x})^2}{n}$$
 
-Positive $I_i$ identifies H-H clusters (high-value systems neighbored by high-value systems) and L-L clusters (low-value systems neighbored by low-value systems). `lisa_penalty` sums only the positive local values, penalizing maps where resource richness or poverty is spatially concentrated regardless of whether the global Moran's I detects it. Dividing by $m_2$ makes the values dimensionless, ensuring $\sum I_i \approx n \times I_{\text{global}}$ and proper scaling relative to the other composite-score terms.
+Positive $I_i$ identifies H-H clusters (high-value systems neighbored by high-value systems) and L-L clusters (low-value systems neighbored by low-value systems). LSAP sums only the positive local values, penalizing maps where resource richness or poverty is spatially concentrated regardless of whether the global Moran's I detects it. Dividing by $m_2$ makes the values dimensionless, ensuring $\sum I_i \approx n \times I_{\text{global}}$ and proper scaling relative to the other composite-score terms.
 
-**LISA normalization bound.** The composite score normalizes the LISA penalty by $n(n-1)$. This bound holds specifically because $\mathbf{W}$ is row-standardized: each row sums to 1, so the spatial lag $(\mathbf{W}\mathbf{z})_i$ is a weighted *average* of neighbours, bounded by the range of $\mathbf{z}$. Without row-standardization, the spatial lag would be an unweighted sum whose magnitude depends on each node's degree, making the bound graph-dependent rather than universal. Under row-standardization, the variance-normalized local Moran's statistic at a single position is maximized when that position has extreme deviation and all its neighbours share the same sign: $(\mathbf{W}\mathbf{z})_i = z_i$ in this fully-correlated limit, giving $I_i = z_i^2 / m_2 = n - 1$ for the single-outlier configuration where $m_2 = z_i^2 / n$. At most $n$ positions can contribute positively, so $\sum_{I_i > 0} I_i \leq n(n-1)$, and dividing by this value maps the LISA penalty to $[0, 1]$.
+**LSAP normalization bound.** The composite score normalizes the LSAP by $n(n-1)$. This bound holds specifically because $\mathbf{W}$ is row-standardized: each row sums to 1, so the spatial lag $(\mathbf{W}\mathbf{z})_i$ is a weighted *average* of neighbours, bounded by the range of $\mathbf{z}$. Without row-standardization, the spatial lag would be an unweighted sum whose magnitude depends on each node's degree, making the bound graph-dependent rather than universal. Under row-standardization, the variance-normalized local Moran's statistic at a single position is maximized when that position has extreme deviation and all its neighbours share the same sign: $(\mathbf{W}\mathbf{z})_i = z_i$ in this fully-correlated limit, giving $I_i = z_i^2 / m_2 = n - 1$ for the single-outlier configuration where $m_2 = z_i^2 / n$. At most $n$ positions can contribute positively, so $\sum_{I_i > 0} I_i \leq n(n-1)$, and dividing by this value maps the LSAP to $[0, 1]$.
 
-> **Methodological note — continuous heuristic proxy.** In classical spatial statistics, LISA significance is determined via conditional permutation tests (typically 999 permutations per location) to distinguish genuine clusters from chance variation (Anselin, 1995). In an optimization loop evaluating thousands of candidate maps, embedding a permutation test inside each fitness evaluation would multiply computational cost by ~1,000×, making it infeasible under real-time budget constraints. The LISA penalty used here therefore sums *all* positive $I_i$ values without significance filtering, serving as a continuous, smooth fitness signal that provides a gradient for the optimizer rather than a binary significance classification. This design choice preserves a differentiable fitness landscape for SA's Metropolis criterion while still penalizing the spatial clustering patterns that significance-filtered LISA would flag at larger sample sizes.
+> **Methodological note — continuous heuristic proxy, not LISA.** In classical spatial statistics, LISA significance is determined via conditional permutation tests (typically 999 permutations per location) to distinguish genuine clusters from chance variation (Anselin, 1995). In an optimization loop evaluating thousands of candidate maps, embedding a permutation test inside each fitness evaluation would multiply computational cost by ~1,000×, making it infeasible under real-time budget constraints. The LSAP therefore sums *all* positive $I_i$ values without significance filtering, serving as a continuous, smooth fitness signal that provides a gradient for the optimizer rather than a binary significance classification. This design choice preserves a differentiable fitness landscape for SA's Metropolis criterion while still penalizing the spatial clustering patterns that significance-filtered LISA would flag at larger sample sizes. We use the term "LSAP" (Local Spatial Autocorrelation Penalty) rather than "LISA" to distinguish this continuous heuristic proxy from the full significance-tested procedure.
 >
-> **Post-hoc validation.** To verify that minimising the continuous proxy successfully eliminates *statistically significant* clusters, `scripts/validate_lisa_proxy.py` runs a separate post-hoc analysis: for a subset of seeds, each algorithm's final map is subjected to full conditional-permutation LISA (999 permutations per location, $p < 0.05$). The number of significant H-H and L-L clusters is counted and compared across algorithms. If SA's proxy-penalized maps consistently show fewer significant clusters than HC's maps, the proxy is empirically validated.
+> **Post-hoc validation.** To verify that minimising the continuous LSAP proxy successfully eliminates *statistically significant* LISA clusters, `scripts/validate_lisa_proxy.py` runs a separate post-hoc analysis: for a subset of seeds, each algorithm's final map is subjected to full conditional-permutation LISA (999 permutations per location, $p < 0.05$). The number of significant H-H and L-L clusters is counted and compared across algorithms. Spearman and Pearson correlations between the continuous proxy and significant cluster counts are reported, along with precision analysis (fraction of low-proxy maps with zero significant clusters). If SA's proxy-penalized maps consistently show fewer significant clusters than HC's maps, the proxy is empirically validated.
 
 #### Multi-Jain Fairness Index (Bottleneck JFI)
 
@@ -218,6 +218,19 @@ $$\alpha = \left(\frac{T_{\min}}{T_0}\right)^{1/N}$$
 
 This ensures that the temperature schedule spans exactly $N$ steps regardless of the $T_{\min}$ or $T_0$ values, making `--sa-iter` the authoritative budget parameter (Kirkpatrick et al., 1983).
 
+#### Single-Objective Genetic Algorithm (SGA)
+
+Population-based evolutionary search optimizing the same 5:5:3 composite scalar as SA, using the same BFS-blob OX1 crossover and swap mutation operators as NSGA-II. SGA uses scalar binary tournament selection (lower composite wins) and (μ + λ) elitist truncation replacement (the *N* lowest-composite individuals from the 2*N* combined pool survive). No Pareto sorting, no crowding distance — zero multi-objective overhead.
+
+**Methodological role.** SGA isolates the comparison matrix:
+- **SA vs SGA:** Markov chain vs population-based, *same scalar objective* — tests algorithm architecture
+- **SGA vs NSGA-II:** Single-objective vs multi-objective, *same population-based operators* — tests objective type cost
+- **SA vs NSGA-II:** Both architecture and objective differ — composite comparison
+
+Without SGA, comparing SA (scalar Markov chain) against NSGA-II (Pareto population-based) conflates two independent variables: objective type and algorithm architecture. SGA resolves this confound, ensuring that any Track A performance difference between SA and NSGA-II can be attributed to either architecture alone (SA vs SGA), objective type alone (SGA vs NSGA-II), or their interaction.
+
+Implementation: [`src/ti4_analysis/algorithms/sga_optimizer.py`](src/ti4_analysis/algorithms/sga_optimizer.py) — reuses `_bfs_blob`, `_ox1_crossover`, `_build_offspring`, and `_seed_population` from `nsga2_optimizer.py`.
+
 #### NSGA-II
 
 Non-dominated sorting genetic algorithm optimizing the three-objective Pareto front (1 − jains_index, |morans_i|, lisa_penalty). Crossover uses a BFS-connected blob operator: a contiguous region of tiles is selected by breadth-first expansion from a random origin and swapped between two parent maps. This preserves local spatial coherence through crossover and is more likely to generate topologically valid offspring than radial wedge or uniform crossover. Population is initialized with a mix of warm starts (greedy HC solutions) and cold starts (random permutations). Non-dominated sorting and crowding distance selection follow Deb et al. (2002) exactly. Crowding distance normalization within each front makes NSGA-II scale-invariant across objectives.
@@ -243,9 +256,10 @@ Uniform random sampling over the full permutation space. For each evaluation, RS
 | Algorithm | Research Role | Production Role (Rust App) |
 | --------- | ------------- | -------------------------- |
 | **NSGA-II** | Ground truth: maps the theoretical limits of fairness trade-offs via multi-objective Pareto front | "Pro" generator: pre-computes gold-standard map libraries offline |
+| **SGA** | Architecture control: isolates population-based vs Markov chain comparison on the same scalar objective | Alternative live engine if population diversity proves beneficial |
 | **SA** | Production baseline: proven to reach near-optimal quality in a fraction of the time | Default live engine for "Generate New Map" clicks (<2 s) |
 | **TS** | Methodological control: validates that SA's stochastic escape is not missing deterministic-memory-accessible optima | Excluded from production: high per-iteration cost for marginal gain |
-| **HC** | Lower bound: establishes the baseline quality achievable without local-optima escape | Warm-start seed for NSGA-II population inoculation |
+| **HC** | Lower bound: establishes the baseline quality achievable without local-optima escape | Warm-start seed for NSGA-II/SGA population inoculation |
 | **RS** | Null baseline: proves that intelligent search outperforms uniform random sampling | Not applicable |
 
 #### Bayesian Optimization (BO) — Excluded
@@ -256,25 +270,29 @@ BO is excluded from the benchmark. The per-evaluation cost of TI4 map fitness (<
 
 ### Experimental Protocol
 
-- **Seeds:** 100 randomly generated 6-player TI4 maps (base seeds 0–999)
-- **Budget:** 1,000 fitness evaluations per algorithm per seed (extended to 100k for saturation study)
-  - HC: 1,000 swap-evaluate iterations
-  - SA: 1,000 iterations (cooling schedule derived as above)
-  - NSGA-II: 50 generations × population of 20 = 1,000 evaluations
-  - TS: full-neighbourhood iterations until budget exhausted (≈ 2 iterations at 1,000 budget)
-- **Hyperparameter tuning:** SA, NSGA-II, and TS parameters tuned separately on a disjoint seed range (9,000–9,014) using Bayesian TPE optimization via Optuna (50 trials each); tuned parameters are fixed for the main benchmark. TS tunes `tabu_tenure` ∈ [3, 20] to ensure symmetric treatment across all stochastic algorithms
+- **Seeds:** 100 randomly generated 6-player TI4 maps (base seeds 0–99)
+- **Budget:** 1k–500k fitness evaluations per algorithm per seed (saturation study)
+  - HC: direct swap-evaluate iterations
+  - SA: iterations (cooling schedule derived as above)
+  - SGA: generations × population size, same operators as NSGA-II
+  - NSGA-II: generations × population size
+  - TS: full-neighbourhood iterations until budget exhausted
+  - RS: independent random permutations
+- **Hyperparameter tuning:** SA, SGA, NSGA-II, and TS parameters tuned separately on a disjoint seed range (9,000–9,099, 100 seeds) using Bayesian TPE optimization via Optuna (50 trials each); tuned parameters are validated with 5-fold cross-validation on the tuning seeds plus a held-out validation set (seeds 9,100–9,149). Optuna convergence plots confirm TPE sampler convergence within the trial budget
 - **Ablation:** Multi-Jain bottleneck JFI vs optimistic (max-dimension) JFI comparison to demonstrate that the bottleneck formulation catches maps with hidden dimensional imbalance
+- **Distance-weight sensitivity:** 6 alternative `DISTANCE_MULTIPLIER` tables tested on a representative subset (50 seeds) to verify that algorithm rankings are invariant to distance decay assumptions. Kendall's tau rank correlation quantifies ranking stability across weight configurations
+- **Convergence tracking:** `evals_to_best` recorded for all algorithms — the evaluation count at which the incumbent best score was last improved. Convergence curves and budget utilization analysis identify the evaluation budget at which further computation yields diminishing returns
 - **Compute:** University of Georgia Sapelo2 HPC cluster; run configuration recorded in [`output/sapelo2-run-20260310/run_config.json`](output/sapelo2-run-20260310/run_config.json)
 
 ### Analysis Tracks
 
 The benchmark produces two complementary analysis tracks addressing different research audiences:
 
-**Track A — Production algorithm selection (scalar).** Applies the 5:5:3 composite scalarization to every algorithm's final solution (for NSGA-II, the Pareto-front member minimizing the composite score). Compares algorithms via scalar convergence curves, Kruskal-Wallis rank tests, and pairwise Mann-Whitney post-hocs with Bonferroni correction. This track answers the practical question: *which algorithm should the Rust web app call when a user clicks "Generate Map"?* Pipeline: `submit_all.sh` Phase 2 (`benchmark_engine.py`) and Phase 3 (`analyze_benchmark.py`, `plot_statistical_results.py`).
+**Track A — Production algorithm selection (scalar).** Applies the 5:5:3 composite scalarization to every algorithm's final solution (for NSGA-II, the Pareto-front member minimizing the composite score). Compares all six algorithms (RS, HC, SA, SGA, NSGA-II, TS) via scalar convergence curves, Friedman rank tests, and pairwise Wilcoxon signed-rank post-hocs with Holm-Bonferroni correction. Vargha-Delaney *A* effect sizes and bootstrap CIs quantify practical significance. Convergence analysis reports `evals_to_best` per algorithm per budget to identify the optimal compute allocation. Pipeline: `submit_all.sh` Phase 2 (`benchmark_engine.py`) and Phase 3 (`analyze_benchmark.py`, `plot_statistical_results.py`).
 
-**Track B — Multi-objective landscape characterization (Pareto, future work).** Evaluates NSGA-II's raw Pareto archives using Hypervolume (HV), Inverted Generational Distance Plus (IGD+), and Spacing — the gold-standard multi-objective quality indicators described in [`ACADEMIC_APPROACH.md`](ACADEMIC_APPROACH.md). This track answers the research question: *how rich is the fairness trade-off surface, and does NSGA-II meaningfully explore it?* HV and IGD+ do not require scalarization and therefore avoid the artificial disadvantage that collapsing a Pareto front to a single composite score imposes on a population-based algorithm. This track requires implementing `quality_indicators.py` (not yet present) and is deferred to post-benchmark analysis using saved Pareto archives from the Track A runs.
+**Track B — Multi-objective landscape characterization (Pareto).** Evaluates NSGA-II's raw Pareto archives using Hypervolume (HV), Inverted Generational Distance Plus (IGD+), and Spacing — the gold-standard multi-objective quality indicators described in [`ACADEMIC_APPROACH.md`](ACADEMIC_APPROACH.md). This track answers the research question: *how rich is the fairness trade-off surface, and does NSGA-II meaningfully explore it?* HV and IGD+ do not require scalarization and therefore avoid the artificial disadvantage that collapsing a Pareto front to a single composite score imposes on a population-based algorithm. Implementation: `scripts/quality_indicators.py` processes the Pareto archives saved during Track A benchmark runs. Pipeline: `submit_all.sh` Phase 6.
 
-> **Why the distinction matters.** Collapsing NSGA-II's Pareto front to a single scalar via the same 5:5:3 weight vector that SA explicitly optimizes structurally favours SA in the Track A comparison — SA has spent its entire evaluation budget hill-climbing on that exact objective, while NSGA-II has distributed effort across the full trade-off surface. Track B isolates NSGA-II's true multi-objective performance without this confound.
+> **Why the distinction matters.** Collapsing NSGA-II's Pareto front to a single scalar via the same 5:5:3 weight vector that SA and SGA explicitly optimize structurally favours scalar algorithms in the Track A comparison — they spend their entire evaluation budget hill-climbing on that exact objective, while NSGA-II distributes effort across the full trade-off surface. Track B isolates NSGA-II's true multi-objective performance without this confound.
 
 ---
 
@@ -286,6 +304,7 @@ ti4-analysis/
 │   ├── algorithms/
 │   │   ├── balance_engine.py        # Greedy HC baseline
 │   │   ├── spatial_optimizer.py     # SA + MultiObjectiveScore
+│   │   ├── sga_optimizer.py         # Single-Objective GA (scalar tournament)
 │   │   ├── nsga2_optimizer.py       # NSGA-II with BFS crossover
 │   │   ├── tabu_search_optimizer.py # Tabu Search (full-neighbourhood)
 │   │   ├── map_generator.py         # Random map generation
@@ -299,19 +318,21 @@ ti4-analysis/
 ├── scripts/
 │   ├── benchmark_engine.py          # Monte Carlo benchmark (CLI, multi-budget)
 │   ├── analyze_benchmark.py         # Non-parametric stats + weight sensitivity
-│   ├── validate_lisa_proxy.py       # Post-hoc permutation-tested LISA validation
-│   ├── plot_statistical_results.py  # Publication-quality figures
-│   ├── optimize_hyperparameters.py  # Bayesian hyperparameter tuning (Optuna)
+│   ├── validate_lisa_proxy.py       # Post-hoc LSAP proxy validation (correlations + scatter)
+│   ├── plot_statistical_results.py  # Publication-quality figures (incl. convergence curves)
+│   ├── optimize_hyperparameters.py  # Bayesian tuning (Optuna) + k-fold CV + held-out val
+│   ├── quality_indicators.py        # Track B: HV, IGD+, Spacing for NSGA-II Pareto fronts
+│   ├── distance_weight_sensitivity.py # Distance-weight robustness analysis
 │   └── plot_benchmark.py            # Legacy figures from results.csv
 ├── output/
 │   └── sapelo2-run-20260310/
-│       ├── results.csv              # 300-row benchmark results
+│       ├── results.csv              # Benchmark results
 │       ├── run_config.json          # Reproducibility metadata + git hash
 │       └── viz/                     # Generated figures (PNG + SVG)
 ├── tests/                           # pytest suite (property-based + unit)
 ├── docs/
 │   ├── lit_review/                  # Literature synthesis (.md files)
-│   ├── tabu_search_justification.md # TS design rationale
+│   ├── tabu_search_justification.md # TS inclusion rationale (methodological control)
 │   └── bayesian_optimization_exclusion.md  # BO exclusion argument
 ├── pyproject.toml
 └── README.md
@@ -353,12 +374,12 @@ pip install optuna
 ## Reproducing the Benchmark
 
 ```bash
-# 1. Run the full benchmark with all four algorithms
-python scripts/benchmark_engine.py --seeds 100 --algorithms hc,sa,nsga2,ts --output-dir output/my_run/
+# 1. Run the full benchmark with all six algorithms
+python scripts/benchmark_engine.py --seeds 100 --algorithms rs,hc,sa,sga,nsga2,ts --output-dir output/my_run/
 
 # 1b. Saturation study: find where algorithms converge (recommended for Sapelo2)
-python scripts/benchmark_engine.py --seeds 100 --algorithms hc,sa,nsga2,ts \
-    --budgets 1000,5000,10000,25000,50000,100000
+python scripts/benchmark_engine.py --seeds 100 --algorithms rs,hc,sa,sga,nsga2,ts \
+    --budgets 1000,5000,10000,25000,50000,100000,200000,500000
 
 # 2. Non-parametric statistical analysis (Friedman, Wilcoxon, VDA, bootstrap)
 python scripts/analyze_benchmark.py output/my_run/results.csv
@@ -366,14 +387,20 @@ python scripts/analyze_benchmark.py output/my_run/results.csv
 # 2b. (Optional) Weight sensitivity analysis across 5 weight configs
 python scripts/analyze_benchmark.py output/my_run/results.csv --sensitivity
 
-# 3. Generate publication figures
+# 3. Generate publication figures (including convergence curves)
 python scripts/plot_statistical_results.py output/my_run/results.csv
 
-# 4. (Optional) Post-hoc LISA validation — permutation-tested significance
+# 4. (Optional) Post-hoc LSAP proxy validation — permutation-tested significance
 python scripts/validate_lisa_proxy.py --seeds 30
 
-# 5. (Optional) Tune SA hyperparameters with Bayesian optimization
-python scripts/optimize_hyperparameters.py --algo sa --trials 50 --eval-seeds 15
+# 5. (Optional) Distance-weight sensitivity analysis
+python scripts/distance_weight_sensitivity.py --seeds 50 --algorithms sa,sga
+
+# 6. (Optional) Tune hyperparameters with Bayesian optimization + cross-validation
+python scripts/optimize_hyperparameters.py --algo sa --trials 50 --eval-seeds 100
+
+# 7. (Optional) Track B quality indicators for NSGA-II Pareto fronts
+python scripts/quality_indicators.py --archive-dir output/my_run/pareto_archives/
 ```
 
 The benchmark script streams results to CSV as each seed completes, so a partial run is not lost on interruption. Submit to an HPC cluster by wrapping the command in a SLURM batch script with `--output-dir` pointing to a shared filesystem path.

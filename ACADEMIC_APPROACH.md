@@ -14,38 +14,40 @@ This repository implements a rigorous academic framework for comparing multi-obj
 4. **RQ4**: What trade-offs exist between balance gap and spatial distribution?
 5. **RQ5**: Which algorithm is most computationally efficient?
 
-## Three Algorithms
+## Six Algorithms
 
-| Algorithm | Current ID | Description | Action Space | Objectives |
-|-----------|------------|-------------|--------------|------------|
-| **G1** | `hc` | Hill-climbing baseline | Blue tiles only | Minimize balance_gap |
-| **G2** | `nsga2` | NSGA-II constrained | Blue tiles only | [balance_gap, \|Moran's I\|, 1-Jain's] |
-| **G3** / **G3-D** | `nsga2` | NSGA-II unconstrained | All tiles (blue+red) | [balance_gap, \|Moran's I\|, 1-Jain's] |
+| ID | Algorithm | Type | Objective |
+|------|-----------|------|-----------|
+| `rs` | Random Search | Null baseline | Scalar composite (5:5:3) |
+| `hc` | Greedy Hill-Climbing | Local search (no escape) | Scalar composite (5:5:3) |
+| `sa` | Simulated Annealing | Markov chain, single-trajectory | Scalar composite (5:5:3) |
+| `sga` | Single-Objective GA | Population-based, scalar tournament | Scalar composite (5:5:3) |
+| `nsga2` | NSGA-II | Population-based, Pareto | 3-objective: (1−JFI, \|I\|, LSAP) |
+| `ts` | Tabu Search | Deterministic memory, full-neighbourhood | Scalar composite (5:5:3) |
 
 > **Naming note:** The production benchmark pipeline (`submit_all.sh`,
-> `benchmark_engine.py`) uses lowercase IDs: `hc`, `sa`, `nsga2`, `ts`, `rs`.
-> Simulated Annealing (`sa`) and Tabu Search (`ts`) were added after the
-> original G-naming scheme and have no G-prefix aliases. The legacy
-> `G1-MO` and `G5` labels (formerly in `experiments/run_final_experiment.py`)
-> are retired.
+> `benchmark_engine.py`) uses lowercase IDs: `rs`, `hc`, `sa`, `sga`, `nsga2`, `ts`.
+> SGA was added to isolate the architecture vs objective-type comparison
+> (SA vs SGA = same scalar, different architecture; SGA vs NSGA-II = same
+> operators, different objective). The legacy G-prefix aliases are retired.
 
 ## Dependent Variables (Gold-Standard Quality Indicators)
 
-### Primary Metrics
+### Primary Metrics (Track B — implemented in `scripts/quality_indicators.py`)
 - **Hypervolume (HV)**: Volume dominated by Pareto front (higher = better)
-- **IGD+**: Distance to reference Pareto front (lower = better)
+- **IGD+**: Inverted Generational Distance Plus (lower = better, Pareto-compliant)
 - **Spacing**: Uniformity of solutions along front (lower = better)
 
 ### Secondary Metrics
-- Iterations to 95% final HV (convergence speed)
+- `evals_to_best`: evaluation count at which the incumbent was last improved (convergence tracking)
 - Function evaluations to convergence
-- Best balance gap, best Jain's Index
-- Knee point objectives (best compromise)
+- Best composite score, best Jain's Index
+- Pareto front cardinality (`front_size`)
 
 ### Efficiency Metrics
 - Wall-clock time
 - Function evaluations
-- Swaps accepted
+- `evals_to_best` as fraction of budget (convergence efficiency)
 
 ## Quick Start
 
