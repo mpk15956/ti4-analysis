@@ -12,6 +12,7 @@ Usage:
 
 Reads:  Pareto archive CSV files (one per seed, produced by benchmark_engine.py)
 Writes: quality_indicators.csv, quality_indicators_report.txt
+        With --plot: fig_trackb_hypervolume.pdf, fig_trackb_igd_plus.pdf, fig_trackb_spacing.pdf
 """
 
 import argparse
@@ -146,6 +147,8 @@ def parse_args() -> argparse.Namespace:
                         "comma-separated values")
     p.add_argument("--mc-samples", type=int, default=100_000,
                    help="Monte Carlo samples for HV estimation (default: 100k)")
+    p.add_argument("--plot", action="store_true",
+                   help="Generate Track B figures (HV, IGD+, Spacing) as PDFs")
     return p.parse_args()
 
 
@@ -267,7 +270,53 @@ def main() -> int:
     print(f"\nResults → {csv_path}")
     print(f"Report  → {report_path}")
 
+    if args.plot:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("Warning: matplotlib not available, skipping --plot", file=sys.stderr)
+        else:
+            _write_trackb_figures(output_dir, hvs, igds, sps)
+
     return 0
+
+
+def _write_trackb_figures(output_dir: Path,
+                         hvs: List[float], igds: List[float], sps: List[float]) -> None:
+    """Write Track B indicator figures (boxplots) to output_dir."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(4, 3))
+    ax.boxplot([hvs], labels=["NSGA-II"])
+    ax.set_ylabel("Hypervolume")
+    ax.set_title("Track B: Hypervolume (higher = better)")
+    fig.tight_layout()
+    path = output_dir / "fig_trackb_hypervolume.pdf"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Figure → {path}")
+
+    fig, ax = plt.subplots(figsize=(4, 3))
+    ax.boxplot([igds], labels=["NSGA-II"])
+    ax.set_ylabel("IGD+")
+    ax.set_title("Track B: IGD+ (lower = better)")
+    fig.tight_layout()
+    path = output_dir / "fig_trackb_igd_plus.pdf"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Figure → {path}")
+
+    fig, ax = plt.subplots(figsize=(4, 3))
+    ax.boxplot([sps], labels=["NSGA-II"])
+    ax.set_ylabel("Spacing")
+    ax.set_title("Track B: Spacing (lower = more uniform)")
+    fig.tight_layout()
+    path = output_dir / "fig_trackb_spacing.pdf"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Figure → {path}")
 
 
 if __name__ == "__main__":

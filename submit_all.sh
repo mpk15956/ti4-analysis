@@ -239,7 +239,8 @@ if [ -n "$ARCHIVE_DIR" ]; then
     echo "--- Phase 6: Track B quality indicators (HV, IGD+, Spacing) ---"
     $PYTHON_BIN scripts/quality_indicators.py \
         --archive-dir "$ARCHIVE_DIR" \
-        --output-dir "$OUTPUT_DIR"
+        --output-dir "$OUTPUT_DIR" \
+        --plot
 else
     echo ""
     echo "--- Phase 6: SKIPPED (no pareto_archives directory found) ---"

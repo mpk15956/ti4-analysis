@@ -521,6 +521,87 @@ def weight_sensitivity_analysis(
     return pd.DataFrame(rows)
 
 
+def rank_stability_and_kendall(
+    sens_df: pd.DataFrame,
+    df: pd.DataFrame,
+    alpha: float,
+    configs: Dict[str, Dict[str, float]],
+    algo_order: List[str],
+) -> Tuple[List[str], List[str]]:
+    """
+    From sensitivity results: (1) per-pair wins at p<alpha across configs (rank stability);
+    (2) Kendall's tau between algorithm rankings under different weight configs.
+    Returns (rank_stability_lines, kendall_lines) for printing and file output.
+    """
+    rank_lines: List[str] = []
+    kendall_lines: List[str] = []
+
+    algos = [a for a in algo_order if a in df["algorithm"].unique()]
+    if len(algos) < 2 or sens_df.empty:
+        return rank_lines, kendall_lines
+
+    # ----- Rank stability: per pair, count configs where each algo wins (p < alpha) -----
+    pairs = sens_df["pair"].unique()
+    for pair in sorted(pairs):
+        sub = sens_df[sens_df["pair"] == pair]
+        a, b = pair.split(" vs ", 1)
+        wins_a = int(((sub["winner"] == a) & (sub["p_wilcoxon"] < alpha)).sum())
+        wins_b = int(((sub["winner"] == b) & (sub["p_wilcoxon"] < alpha)).sum())
+        n_configs = len(sub)
+        rank_lines.append(
+            f"  {pair}: {a} {wins_a}/{n_configs}, {b} {wins_b}/{n_configs} (p<{alpha})"
+        )
+
+    # ----- Kendall's tau: median composite rank per config, then tau between configs -----
+    n_spatial = 37
+    lisa_divisor = max(1, n_spatial * (n_spatial - 1))
+    config_names = list(configs.keys())
+    if len(config_names) < 2:
+        return rank_lines, kendall_lines
+
+    # Per-config median composite per algorithm (across seeds)
+    rank_vectors: Dict[str, np.ndarray] = {}
+    for config_name, weights in configs.items():
+        df_copy = df.copy()
+        df_copy["composite_reweighted"] = recompute_composite(df_copy, weights)
+        wide = df_copy.pivot(
+            index="seed", columns="algorithm", values="composite_reweighted"
+        )
+        avail = [x for x in algos if x in wide.columns]
+        if len(avail) < 2:
+            continue
+        medians = wide[avail].median()
+        # rank 1 = best (lowest composite)
+        ranks = medians.rank(method="min").astype(int).values
+        rank_vectors[config_name] = ranks
+
+    # Report tau for current_5_5_3 vs equal_1_1_1 (and optionally all pairs)
+    ref = "current_5_5_3"
+    other = "equal_1_1_1"
+    if ref in rank_vectors and other in rank_vectors:
+        tau, p_tau = stats.kendalltau(rank_vectors[ref], rank_vectors[other])
+        kendall_lines.append(
+            f"  Kendall's tau ({ref} vs {other}): τ = {tau:.4f}, p = {p_tau:.4f}"
+        )
+        kendall_lines.append(
+            "  → Algorithm ranking is robust to preference-weight perturbation."
+            if abs(tau) >= 0.9 else
+            "  → Algorithm ranking varies with weight configuration."
+        )
+
+    # All pairs of configs (optional, brief)
+    for i, c1 in enumerate(config_names):
+        if c1 not in rank_vectors:
+            continue
+        for c2 in config_names[i + 1:]:
+            if c2 not in rank_vectors:
+                continue
+            tau, p_tau = stats.kendalltau(rank_vectors[c1], rank_vectors[c2])
+            kendall_lines.append(f"  τ({c1}, {c2}) = {tau:.4f} (p={p_tau:.4f})")
+
+    return rank_lines, kendall_lines
+
+
 # ---------------------------------------------------------------------------
 # Multi-Jain ablation
 # ---------------------------------------------------------------------------
@@ -690,6 +771,27 @@ def main() -> int:
                         f"{r['pair']}: {r['winner']} (A={r['vda_A']:.3f})"
                     )
                 print(f"     {config_name}: {', '.join(summary_parts)}")
+
+            # Rank stability and Kendall's tau
+            rank_lines, kendall_lines = rank_stability_and_kendall(
+                sens_df, df, args.alpha, WEIGHT_CONFIGS, ALGO_ORDER
+            )
+            if rank_lines or kendall_lines:
+                print("\n   Rank stability (wins at p<{:.2f} across weight configs):".format(args.alpha))
+                for line in rank_lines:
+                    print(line)
+                print("\n   Kendall's tau (ranking correlation across weight configs):")
+                for line in kendall_lines:
+                    print(line)
+                stability_report = [
+                    "WEIGHT SENSITIVITY: RANK STABILITY AND KENDALL'S TAU",
+                    "=" * 60,
+                    "",
+                    "Rank stability (significant wins at p<{:.2f}):".format(args.alpha),
+                ] + rank_lines + [""] + ["Kendall's tau:"] + kendall_lines
+                stability_path = out_dir / "sensitivity_rank_stability.txt"
+                stability_path.write_text("\n".join(stability_report))
+                print(f"\n   Saved to {stability_path}")
 
     # ── Convergence analysis (evals_to_best) ──────────────────────────────
     if "evals_to_best" in df.columns:

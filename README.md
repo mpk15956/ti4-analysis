@@ -14,10 +14,26 @@ Standard TI4 map generators optimize numeric resource equality but are spatially
 
 ## Key Results
 
+Primary evaluation uses **weight-independent** indicators (Track B: Hypervolume, IGD+, Spacing). The scalar composite (Track A) is a secondary benchmark for single-objective algorithms under a nominal 5:5:3 scalarization.
+
+### Track B — Pareto quality (primary)
+
+NSGA-II is evaluated on the multi-objective trade-off surface without scalarization. Quality is measured by Hypervolume (HV, higher = better), IGD+ (lower = better), and Spacing (lower = more uniform). These metrics are computed by `scripts/quality_indicators.py` (Phase 6); run with `--plot` to generate `fig_trackb_hypervolume.pdf`, `fig_trackb_igd_plus.pdf`, and `fig_trackb_spacing.pdf`.
+
+| Algorithm | Mean Hypervolume (↑) | Mean IGD+ (↓) | Mean Spacing (↓) |
+| :--- | :--- | :--- | :--- |
+| **NSGA-II** | *From Phase 6 / quality_indicators_report.txt* | *From Phase 6* | *From Phase 6* |
+
+*Scalar algorithms (SA, HC, TS, SGA) do not produce Pareto fronts; they are compared via Track A below.*
+
+---
+
+### Track A — Scalar composite (secondary, nominal 5:5:3)
+
 > [!CAUTION]
 > **Preliminary Benchmark (Pre-Multi-Jain).** The results below were generated using a scalar `balance_gap` metric and a 1,000-evaluation ceiling with 3 algorithms. These are being superseded by the **Sapelo2 Saturation Study**, which utilizes the Multi-Jain Bottleneck, Tabu Search as a fourth algorithm, and an expanded evaluation budget range (1k–100k). These preliminary results are retained as a reference point for the HC/SA/NSGA-II comparison under the original methodology.
 
-### Preliminary Algorithm Comparison
+### Preliminary Algorithm Comparison (Track A)
 
 | Algorithm | Mean Composite Score | Std Dev | Mean Wall-clock Time |
 | --------- | -------------------- | ------- | -------------------- |
@@ -89,7 +105,7 @@ $$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot |I| + w_3 \cdot \frac{\text{LSAP}}{n(
 
 where $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This is inspired by Dominant Resource Fairness (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension.
 
-Default weights: `w₁ = 5/13 ≈ 0.385`, `w₂ = 5/13 ≈ 0.385`, `w₃ = 3/13 ≈ 0.231` (ratios 5:5:3, sum = 1.0). These are defined in `MultiObjectiveScore` in [`src/ti4_analysis/algorithms/spatial_optimizer.py`](src/ti4_analysis/algorithms/spatial_optimizer.py). A weight sensitivity analysis (`--sensitivity` flag in `analyze_benchmark.py`) demonstrates whether algorithm rankings are robust to alternative weight configurations (equal, JFI-dominant, spatial-dominant, LISA-dominant).
+Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization** — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+); see Track B above. The nominal weights are `w₁ = 5/13`, `w₂ = 5/13`, `w₃ = 3/13`, defined in `MultiObjectiveScore` in [`src/ti4_analysis/algorithms/spatial_optimizer.py`](src/ti4_analysis/algorithms/spatial_optimizer.py). Weight sensitivity (`--sensitivity` in `analyze_benchmark.py`) tests whether algorithm rankings are robust to alternative weight configurations (equal, JFI-dominant, spatial-dominant, LISA-dominant). HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
 
 All three terms are normalized to [0, 1] before weighting:
 
@@ -408,7 +424,7 @@ python scripts/distance_weight_sensitivity.py --seeds 50 --algorithms sa,sga
 python scripts/optimize_hyperparameters.py --algo sa --trials 50 --eval-seeds 100
 
 # 7. (Optional) Track B quality indicators for NSGA-II Pareto fronts
-python scripts/quality_indicators.py --archive-dir output/my_run/pareto_archives/
+python scripts/quality_indicators.py --archive-dir output/my_run/pareto_archives/ --output-dir output/my_run/ --plot
 ```
 
 The benchmark script streams results to CSV as each seed completes, so a partial run is not lost on interruption. Submit to an HPC cluster by wrapping the command in a SLURM batch script with `--output-dir` pointing to a shared filesystem path.
@@ -449,6 +465,10 @@ Glover, F. (1989). Tabu search — Part I. *ORSA Journal on Computing*, 1(3), 19
 Getis, A., & Ord, J. K. (1992). The analysis of spatial association by use of distance statistics. *Geographical Analysis*, 24(3), 189–206.
 
 Ghodsi, A., Zaharia, M., Hindman, B., Konwinski, A., Shenker, S., & Stoica, I. (2011). Dominant resource fairness: Fair allocation of multiple resource types. *Proceedings of the 8th USENIX Symposium on Networked Systems Design and Implementation (NSDI)*, 24, 323–336.
+
+Ishibuchi, H., Masuda, H., Tanigaki, Y., & Nojima, Y. (2015). Modified distance calculation in generational distance and inverted generational distance. *Proceedings of the International Conference on Evolutionary Multi-Criterion Optimization (EMO)*, 110–125.
+
+Libório, M. P., de Abreu, J. F., Ekel, P., & Machado, A. (2022). Effect of sub-indicator weighting schemes on the spatial dependence of multidimensional phenomena. *Journal of Geographical Systems*, 25, 185–211.
 
 Grappiolo, C., Martínez, H. P., & Yannakakis, G. N. (2013). Validating generic metrics of fairness in game-based resource allocation scenarios with crowdsourced annotations. *Transactions on Computational Collective Intelligence*, 13, 176–200.
 

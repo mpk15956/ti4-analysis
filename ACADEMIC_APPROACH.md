@@ -31,6 +31,10 @@ This repository implements a rigorous academic framework for comparing multi-obj
 > (SA vs SGA = same scalar, different architecture; SGA vs NSGA-II = same
 > operators, different objective). The legacy G-prefix aliases are retired.
 
+### Objective hierarchy (Nominal Scalarization)
+
+Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization**. It provides a fixed target for single-objective trajectories (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+). HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** — the combined set of all observed non-dominated points across seeds — which is the standard approach when the true Pareto front of the problem is unknown.
+
 ## Dependent Variables (Gold-Standard Quality Indicators)
 
 ### Primary Metrics (Track B — implemented in `scripts/quality_indicators.py`)
