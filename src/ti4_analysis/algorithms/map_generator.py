@@ -9,7 +9,7 @@ import random
 from typing import List, Optional, Dict
 from pathlib import Path
 
-from ..algorithms.hex_grid import HexCoord
+from ..algorithms.hex_grid import HexCoord, get_adjacent_coordinates
 from ..data.map_structures import System, MapSpace, MapSpaceType
 from ..data.tile_loader import load_tile_database, load_board_template, TileDatabase
 from ..algorithms.balance_engine import TI4Map
@@ -96,8 +96,22 @@ def generate_random_map(
         red_count=red_count
     )
 
-    # Shuffle swappable tiles
-    random.shuffle(swappable_tiles)
+    # Split into red / blue based on system definition
+    red_tiles = [t for t in swappable_tiles if t.is_red()]
+    blue_tiles = [t for t in swappable_tiles if not t.is_red()]
+
+    if len(red_tiles) != red_count or len(blue_tiles) != blue_count:
+        raise ValueError(
+            f"Tile pool mismatch: expected {blue_count} blue / {red_count} red, "
+            f"got {len(blue_tiles)} blue / {len(red_tiles)} red."
+        )
+
+    # Constructively assign tiles so that no red system borders another red system
+    coord_to_system = _assign_swappable_tiles_without_adjacent_red(
+        red_tiles=red_tiles,
+        blue_tiles=blue_tiles,
+        swappable_positions=swappable_positions,
+    )
 
     # Build the map
     spaces = []
@@ -120,9 +134,13 @@ def generate_random_map(
             system=home_system
         ))
 
-    # Assign swappable tiles to swappable positions
-    for position_idx, tile in zip(swappable_positions, swappable_tiles):
+    # Assign swappable tiles to swappable positions using the
+    # precomputed non-adjacent-red assignment.
+    for position_idx in swappable_positions:
         coord = _position_index_to_hex_coord(position_idx)
+        tile = coord_to_system.get(coord)
+        if tile is None:
+            raise ValueError(f"No system assigned for swappable position index {position_idx}")
         spaces.append(MapSpace(
             coord=coord,
             space_type=MapSpaceType.SYSTEM,
@@ -198,6 +216,92 @@ def _position_index_to_hex_coord(index: int) -> HexCoord:
         return ring4_coords[index - 37]
 
     raise ValueError(f"Invalid position index: {index}. Must be 0-60.")
+
+
+def _assign_swappable_tiles_without_adjacent_red(
+    red_tiles: List[System],
+    blue_tiles: List[System],
+    swappable_positions: List[int],
+    max_attempts: int = 1000,
+) -> Dict[HexCoord, System]:
+    """
+    Assign swappable tiles to board positions such that no red system
+    (empty/anomaly) is adjacent to another red system.
+
+    Uses a constructive placement with retries:
+    - Place all red tiles first into positions whose neighbors are not red
+    - Then fill remaining positions with blue tiles
+    - Retry with different random orders if placement fails
+    """
+    if len(red_tiles) + len(blue_tiles) != len(swappable_positions):
+        raise ValueError(
+            "Number of swappable tiles does not match number of swappable positions"
+        )
+
+    coords = [_position_index_to_hex_coord(idx) for idx in swappable_positions]
+
+    for _ in range(max_attempts):
+        # Shuffle tiles and coordinates to avoid bias
+        shuffled_coords = coords[:]
+        random.shuffle(shuffled_coords)
+
+        shuffled_red = red_tiles[:]
+        shuffled_blue = blue_tiles[:]
+        random.shuffle(shuffled_red)
+        random.shuffle(shuffled_blue)
+
+        coord_to_system: Dict[HexCoord, System] = {}
+        red_coords = set()
+
+        # Place red tiles first, enforcing no red-adjacent-to-red
+        for tile in shuffled_red:
+            placed = False
+
+            # Try coordinates in random order for each tile
+            random.shuffle(shuffled_coords)
+            for coord in shuffled_coords:
+                if coord in coord_to_system:
+                    continue
+
+                # Check if any neighbor already has a red tile
+                has_red_neighbor = any(
+                    neighbor in red_coords
+                    for neighbor in get_adjacent_coordinates(coord)
+                )
+                if has_red_neighbor:
+                    continue
+
+                coord_to_system[coord] = tile
+                red_coords.add(coord)
+                placed = True
+                break
+
+            if not placed:
+                # Failed to place this red tile without violating the constraint;
+                # restart with a new random ordering.
+                break
+
+        # If we did not place all red tiles, retry
+        if len(red_coords) != len(shuffled_red):
+            continue
+
+        # Fill remaining coordinates with blue tiles
+        remaining_coords = [c for c in shuffled_coords if c not in coord_to_system]
+        if len(remaining_coords) != len(shuffled_blue):
+            # Mismatch; retry with a fresh attempt
+            continue
+
+        for coord, tile in zip(remaining_coords, shuffled_blue):
+            coord_to_system[coord] = tile
+
+        # Success: all positions assigned with no red-bordering-red
+        if len(coord_to_system) == len(coords):
+            return coord_to_system
+
+    raise RuntimeError(
+        "Failed to assign swappable tiles without adjacent red systems "
+        f"after {max_attempts} attempts. Consider adjusting tile counts or template."
+    )
 
 
 def generate_multiple_maps(

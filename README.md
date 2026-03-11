@@ -316,6 +316,7 @@ The benchmark produces two complementary analysis tracks addressing different re
 
 - **Anomaly pathing.** Asteroid fields are **impassable** (Round 0, no Antimass Deflectors assumed). Nebulas add **no** distance penalty (Move-1 baseline). Gravity rifts use a distance-dependent **Expected Effort** modifier ($M = 0.3 d_{\text{rift}} - 0.4$). Rationale, inflection-point behavior, and Risk-Averse Baseline are documented in [docs/limitations/anomalies.md](docs/limitations/anomalies.md).
 - **Small-N spatial statistics.** With ~37 swappable tiles, asymptotic normality for Moran's I / LISA is not justified. Significance claims use **permutation-based** evaluation (e.g. `validate_lisa_proxy.py`); the continuous LSAP is an optimization heuristic only. See [docs/limitations/limitations.md](docs/limitations/limitations.md).
+- **Anomaly topology constraint (Problem A fixed).** All benchmark seeds are generated from a **legally constrained anomaly topology**: the random map generator enforces *non-adjacency of red/anomaly systems* in the swappable region (no red-bordering-red). Anomalies are then frozen during optimization so that all algorithms operate on a structurally valid routing graph while only redistributing resources (Problem B: resource allocation).
 
 ---
 
