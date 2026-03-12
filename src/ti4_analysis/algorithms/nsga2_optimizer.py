@@ -38,7 +38,7 @@ from typing import List, Tuple, Optional
 
 import numpy as np
 
-from .balance_engine import TI4Map, improve_balance
+from .balance_engine import TI4Map
 from .map_topology import MapTopology
 from .fast_map_state import FastMapState
 from ..data.map_structures import Evaluator
@@ -339,17 +339,11 @@ def _seed_population(
     verbose: bool,
 ) -> List[Individual]:
     """
-    Inoculation seeding: warm_fraction warm starts + rest cold starts.
-
-    Cold starts (random permutations) maximise diversity so NSGA-II can
-    spread the Pareto front across the objective space.
-
-    Warm starts (low-iteration greedy HC) provide anchor individuals in
-    high-fitness regions, preventing Gen 0 from wasting cycles on maps
-    that are mathematically catastrophic.
+    Gen 0 is cold-start only (n_warm forced to 0) to preserve Pareto diversity.
+    Warm starts would bias the population toward a single objective (balance_gap).
     """
-    n_warm = int(pop_size * warm_fraction)  # 0 is valid → pure cold start
-    n_cold = pop_size - n_warm
+    n_warm = 0  # No warm starts: pure random permutations for unbiased Pareto exploration
+    n_cold = pop_size
     population: List[Individual] = []
 
     base_systems = [ti4_map.spaces[i].system for i in topology.swappable_indices]
@@ -363,20 +357,6 @@ def _seed_population(
         new_map, state = _build_offspring(ti4_map, topology, shuffled, evaluator)
         score = evaluate_map_multiobjective(new_map, evaluator, fast_state=state)
         population.append(Individual(map=new_map, fast_state=state, score=score))
-
-    # Warm starts: short greedy HC runs as anchor individuals
-    if verbose:
-        print(f"Seeding {n_warm} warm individuals (greedy HC, 50 iterations each)...")
-    for _ in range(n_warm):
-        warm_map = ti4_map.copy()
-        improve_balance(
-            warm_map, evaluator,
-            iterations=50,
-            random_seed=rng.randrange(1_000_000),
-        )
-        state = FastMapState.from_ti4_map(topology, warm_map, evaluator)
-        score = evaluate_map_multiobjective(warm_map, evaluator, fast_state=state)
-        population.append(Individual(map=warm_map, fast_state=state, score=score))
 
     return population
 

@@ -78,7 +78,11 @@ class MapTopology:
         spatial_projection: Sparse (N_sys, S) matrix mapping system_value to the
             swappable portion of the full spatial values vector.
         spatial_W: Row-standardized sparse binary adjacency matrix (N_sys, N_sys).
-            Zero rows (island hexes) are left as zero rather than NaN.
+            Zero-degree (island) hexes are purged so n and variance match the lag.
+        spatial_W_swappable: Row-standardized adjacency over swappable positions only
+            (S_conn, S_conn). Decision variables only; no static outliers in variance.
+        swappable_connected_s_pos: Indices into swappable_indices (0..S-1) that have
+            at least one swappable neighbor, shape (S_conn,). Used for morans_i_swappable.
     """
 
     home_indices: np.ndarray          # shape (H,) int32
@@ -91,6 +95,8 @@ class MapTopology:
     spatial_static_values: np.ndarray # shape (N_sys,) float32
     spatial_projection: object = field(compare=False)  # scipy.sparse.csr_matrix (N_sys, S)
     spatial_W: object = field(compare=False)           # scipy.sparse.csr_matrix (N_sys, N_sys)
+    spatial_W_swappable: object = field(compare=False)  # scipy.sparse.csr_matrix (S_conn, S_conn)
+    swappable_connected_s_pos: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))  # (S_conn,)
 
     @classmethod
     def from_ti4_map(cls, ti4_map: 'TI4Map', evaluator: Evaluator) -> 'MapTopology':
@@ -230,11 +236,50 @@ class MapTopology:
             dtype=np.float32,
         )
 
-        # Row-standardize W; protect against zero-sum rows (isolated hexes).
+        # Purge zero-degree nodes (island hexes). They contribute to variance
+        # but not to spatial lag, corrupting LSAP. Keep only connected nodes.
         row_sums = np.array(W_raw.sum(axis=1)).flatten()
-        safe_sums = np.where(row_sums == 0, 1.0, row_sums)
-        spatial_W = scipy.sparse.diags(1.0 / safe_sums) @ W_raw
+        keep = row_sums > 0
+        keep_inds = np.where(keep)[0]
+        spatial_indices = spatial_indices[keep]
+        spatial_static_values = spatial_static_values[keep]
+        spatial_projection = spatial_projection[keep_inds, :]
+        W_kept = W_raw[keep_inds, :][:, keep_inds]
+        N_sys = len(spatial_indices)
+        row_sums_kept = np.array(W_kept.sum(axis=1)).flatten()
+        # After purge, no zero rows remain.
+        spatial_W = scipy.sparse.diags(1.0 / row_sums_kept) @ W_kept
         spatial_W = scipy.sparse.csr_matrix(spatial_W, dtype=np.float32)
+
+        # Swappable-only adjacency (S x S) for Moran's I / LSAP over decision variables.
+        # Same navigability rules; then purge zero-degree so variance = lag domain.
+        S = len(swappable_indices)
+        sw_pos_of = {int(swappable_indices[p]): p for p in range(S)}
+        adj_sw_r, adj_sw_c = [], []
+        for s_pos in range(S):
+            space_idx = int(swappable_indices[s_pos])
+            space = spaces[space_idx]
+            if space.system is not None and space.system.get_distance_modifier(evaluator) is None:
+                continue
+            for nb in ti4_map.get_adjacent_spaces_including_wormholes(space):
+                if nb.system is not None and nb.system.get_distance_modifier(evaluator) is None:
+                    continue
+                nb_idx = next((i for i, s in enumerate(spaces) if s is nb), None)
+                if nb_idx is not None and nb_idx in sw_pos_of:
+                    adj_sw_c.append(sw_pos_of[nb_idx])
+                    adj_sw_r.append(s_pos)
+        W_sw_raw = scipy.sparse.csr_matrix(
+            ([1.0] * len(adj_sw_r), (adj_sw_r, adj_sw_c)),
+            shape=(S, S),
+            dtype=np.float32,
+        )
+        row_sums_sw = np.array(W_sw_raw.sum(axis=1)).flatten()
+        keep_sw = row_sums_sw > 0
+        keep_sw_inds = np.where(keep_sw)[0].astype(np.int32)
+        W_sw_kept = W_sw_raw[keep_sw_inds, :][:, keep_sw_inds]
+        row_sums_sw_kept = np.array(W_sw_kept.sum(axis=1)).flatten()
+        spatial_W_swappable = scipy.sparse.diags(1.0 / row_sums_sw_kept) @ W_sw_kept
+        spatial_W_swappable = scipy.sparse.csr_matrix(spatial_W_swappable, dtype=np.float32)
 
         return cls(
             home_indices=home_indices,
@@ -247,4 +292,6 @@ class MapTopology:
             spatial_static_values=spatial_static_values,
             spatial_projection=spatial_projection,
             spatial_W=spatial_W,
+            spatial_W_swappable=spatial_W_swappable,
+            swappable_connected_s_pos=keep_sw_inds,
         )

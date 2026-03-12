@@ -231,6 +231,45 @@ class FastMapState:
         local_I = z_dev * np.asarray(Wz).ravel() / m2
         return float(local_I[local_I > 0].sum())
 
+    def morans_i_swappable(self) -> float:
+        """
+        Moran's I over swappable (decision) variables only.
+        Uses spatial_W_swappable and system_value at swappable_connected_s_pos.
+        No static outliers (Mecatol Rex, anomalies) in variance — full optimization signal.
+        """
+        conn = self.topology.swappable_connected_s_pos
+        if len(conn) < 3:
+            return 0.0
+        z = np.asarray(self.system_value[conn], dtype=np.float32)
+        z_dev = z - z.mean()
+        denom = float(z_dev @ z_dev)
+        if denom == 0.0:
+            return 0.0
+        W = self.topology.spatial_W_swappable
+        W_sum = float(W.sum())
+        if W_sum == 0.0:
+            return 0.0
+        n = len(z)
+        numer = float(z_dev @ (W @ z_dev))
+        return (n / W_sum) * (numer / denom)
+
+    def lisa_penalty_swappable(self) -> float:
+        """
+        LSAP over swappable variables only (same domain as morans_i_swappable).
+        """
+        conn = self.topology.swappable_connected_s_pos
+        if len(conn) < 3:
+            return 0.0
+        z = np.asarray(self.system_value[conn], dtype=np.float32)
+        z_dev = z - z.mean()
+        n = len(z)
+        m2 = float(z_dev @ z_dev) / n
+        if m2 == 0.0:
+            return 0.0
+        Wz = self.topology.spatial_W_swappable @ z_dev
+        local_I = z_dev * np.asarray(Wz).ravel() / m2
+        return float(local_I[local_I > 0].sum())
+
     def home_resources(self) -> np.ndarray:
         """Distance-weighted raw resource totals per home, shape (H,)."""
         if self._home_ri_dirty:

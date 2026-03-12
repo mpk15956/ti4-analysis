@@ -19,10 +19,11 @@ def _system(r: int, i: int, sid: int = 0) -> System:
     return System(id=sid, planets=[Planet("P", resources=r, influence=i)])
 
 
-def test_supernova_has_zero_row_and_column_sums_in_spatial_W():
+def test_supernova_purged_from_spatial_W():
     """
-    Impassable tiles (e.g. Supernova) must have zero row and column sums in
-    spatial_W so Moran's I and LSAP use navigable topology only.
+    Zero-degree nodes (e.g. Supernova with no navigable neighbors) are purged
+    from spatial_indices and spatial_W so variance and spatial lag share the
+    same domain (no island variance leak).
     """
     # Map: 2 homes, 2 normal systems, 1 supernova (impassable).
     supernova = System(id=0, planets=[], anomalies=[Anomaly.SUPERNOVA])
@@ -37,20 +38,13 @@ def test_supernova_has_zero_row_and_column_sums_in_spatial_W():
     evaluator = Evaluator(name="Test")
 
     topo = MapTopology.from_ti4_map(ti4_map, evaluator)
-    W = topo.spatial_W
-    if hasattr(W, "toarray"):
-        W_dense = W.toarray()
-    else:
-        W_dense = np.asarray(W.todense())
-
-    # Find the row index for the Supernova space (space index 4).
-    # spatial_indices are system spaces with non-None system; order = [2,3,4] for indices 2,3,4.
-    # So supernova is at the last row (index 2 in 0-based spatial_indices).
     spatial_indices = topo.spatial_indices
     supernova_space_idx = 4
-    supernova_row = np.flatnonzero(spatial_indices == supernova_space_idx)[0]
 
-    row_sum = W_dense[supernova_row, :].sum()
-    col_sum = W_dense[:, supernova_row].sum()
-    assert row_sum == 0.0, "Supernova row in spatial_W should sum to 0 (no outgoing edges)"
-    assert col_sum == 0.0, "Supernova column in spatial_W should sum to 0 (no incoming edges)"
+    # Supernova has no navigable neighbors → zero degree → purged from spatial domain.
+    assert supernova_space_idx not in spatial_indices, (
+        "Zero-degree (island) nodes must be purged from spatial_indices"
+    )
+    # All remaining rows in spatial_W are connected (no zero rows).
+    row_sums = np.array(topo.spatial_W.sum(axis=1)).flatten()
+    assert (row_sums > 0).all(), "After purge, spatial_W has no zero-degree rows"

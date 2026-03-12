@@ -149,14 +149,14 @@ def evaluate_map_multiobjective(
         MultiObjectiveScore with all metrics
     """
     if fast_state is not None:
-        # All metrics from vectorized fast paths — no TI4Map traversal needed.
+        # All metrics from vectorized fast paths — swappable-only spatial (no static outliers).
         balance_gap    = fast_state.balance_gap()
-        morans_i       = fast_state.morans_i()
+        morans_i       = fast_state.morans_i_swappable()
         jains_index    = fast_state.jains_index()
         jfi_resources  = fast_state.jfi_resources()
         jfi_influence  = fast_state.jfi_influence()
-        lisa_penalty   = fast_state.lisa_penalty()
-        n_spatial      = len(fast_state.spatial_values())
+        lisa_penalty   = fast_state.lisa_penalty_swappable()
+        n_spatial      = max(1, len(fast_state.topology.swappable_connected_s_pos))
     else:
         # Slow path: per-dimension JFI unavailable; fall back to combined scalar.
         home_values = get_home_values(ti4_map, evaluator)

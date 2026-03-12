@@ -254,9 +254,9 @@ class TestImproveBalanceSpatial:
 
         score = evaluate_map_multiobjective(ti4_map, evaluator, fast_state=fast_state)
 
-        # lisa_penalty should be non-negative and match direct computation
+        # lisa_penalty should be non-negative and match direct computation (swappable-only)
         assert score.lisa_penalty >= 0.0
-        assert score.lisa_penalty == pytest.approx(fast_state.lisa_penalty(), rel=1e-5)
+        assert score.lisa_penalty == pytest.approx(fast_state.lisa_penalty_swappable(), rel=1e-5)
 
 
 # ── Multi-Jain (per-dimension bottleneck JFI) tests ──────────────────────────

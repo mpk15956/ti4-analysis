@@ -39,7 +39,7 @@ def improve_balance_tabu(
     random_seed: Optional[int] = None,
     verbose: bool = True,
     tabu_tenure: Optional[int] = None,
-) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
+) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]], int, int]:
     """
     Improve map balance using Tabu Search over the composite fitness.
 
@@ -58,9 +58,10 @@ def improve_balance_tabu(
             Default: ceil(sqrt(S)), a standard heuristic (Glover 1989).
 
     Returns:
-        Tuple of (best_score, history, evals_to_best)
+        Tuple of (best_score, history, evals_to_best, iterations_completed)
         history is a list of (evaluation_count, score) tuples
         evals_to_best is the evaluation count when the incumbent was last improved
+        iterations_completed is the number of TS iterations (full or partial) executed
     """
     if random_seed is not None:
         random.seed(random_seed)
@@ -237,4 +238,4 @@ def improve_balance_tabu(
         print(f"Final best: {best_score}")
 
     history.append((total_evals, best_score))
-    return best_score, history, best_etb
+    return best_score, history, best_etb, iteration

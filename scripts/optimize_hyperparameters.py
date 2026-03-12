@@ -19,7 +19,7 @@ SA search space:
 NSGA-II search space:
     blob_fraction            [0.25, 0.75]   — BFS crossover blob size
     mutation_rate            [0.01, 0.30]   — per-position swap probability
-    warm_fraction            [0.00, 0.30]   — Gen-0 warm-start fraction
+    (warm_fraction fixed to 0 — cold-start only for Pareto diversity)
 
 TS search space:
     tabu_tenure              [3, 20]        — iterations a swap stays forbidden
@@ -28,6 +28,9 @@ Outputs (inside --output-dir / optuna_YYYYMMDD_HHMMSS/):
     best_params.json  — optimal hyperparameters + best objective value
     trials.csv        — all trial results (for convergence plots)
     run_config.json   — CLI params + git hash for reproducibility
+
+Validation: fixed train/test split only. Optuna trains on eval_seeds;
+validation is on 50 held-out seeds. No cross-validation.
 """
 
 import argparse
@@ -123,7 +126,7 @@ def objective_nsga2(trial, args, evaluator, generate_random_map, nsga2_optimize)
     """Objective for NSGA-II: mean best-composite over eval_seeds random maps."""
     blob_frac  = trial.suggest_float("blob_fraction",  0.25, 0.75)
     mut_rate   = trial.suggest_float("mutation_rate",  0.01, 0.30, log=True)
-    warm_frac  = trial.suggest_float("warm_fraction",  0.00, 0.30)
+    # warm_fraction fixed to 0 for NSGA-II (cold-start only for Pareto diversity)
 
     generations, pop_size = _nsga2_budget(args.iter_budget)
 
@@ -142,7 +145,7 @@ def objective_nsga2(trial, args, evaluator, generate_random_map, nsga2_optimize)
             population_size=pop_size,
             blob_fraction=blob_frac,
             mutation_rate=mut_rate,
-            warm_fraction=warm_frac,
+            warm_fraction=0,
             random_seed=seed,
             verbose=False,
         )
@@ -201,13 +204,18 @@ def objective_ts(trial, args, evaluator, generate_random_map, improve_balance_ta
             include_pok=True,
             random_seed=seed,
         )
-        score, _, _ = improve_balance_tabu(
+        score, _, _, iters_completed = improve_balance_tabu(
             m, evaluator,
             max_evaluations=args.iter_budget,
             tabu_tenure=tenure,
             random_seed=seed,
             verbose=False,
         )
+        if i == 0:
+            print(
+                f"  [TS tuning] trial={trial.number} seed={seed} "
+                f"tenure={tenure} iters={iters_completed} budget={args.iter_budget}"
+            )
         scores.append(score.composite_score())
         del m
         gc.collect()
@@ -357,68 +365,7 @@ def main() -> int:
                          "best_so_far": round(best_so_far, 6)})
     print(f"\nOptuna convergence → {convergence_path}")
 
-    # ── k-fold cross-validation on the best hyperparameters ───────────────
-    k_folds = 5
     best_p = study.best_params
-    all_seeds = list(range(args.base_seed, args.base_seed + args.eval_seeds))
-    fold_size = len(all_seeds) // k_folds
-    fold_scores = []
-
-    print(f"\n--- {k_folds}-fold cross-validation on best params ---")
-    for fold_idx in range(k_folds):
-        fold_start = fold_idx * fold_size
-        fold_end = fold_start + fold_size if fold_idx < k_folds - 1 else len(all_seeds)
-        val_seeds = all_seeds[fold_start:fold_end]
-        scores = []
-        for seed in val_seeds:
-            m = generate_random_map(
-                player_count=args.players, template_name="normal",
-                include_pok=True, random_seed=seed,
-            )
-            if args.algo == "sa":
-                s, _, _ = improve_balance_spatial(
-                    m, evaluator, iterations=args.iter_budget,
-                    initial_acceptance_rate=best_p["initial_acceptance_rate"],
-                    min_temp=best_p["min_temp"],
-                    random_seed=seed, verbose=False,
-                )
-                scores.append(s.composite_score())
-            elif args.algo in ("nsga2", "sga"):
-                gens, pop = _nsga2_budget(args.iter_budget)
-                if args.algo == "nsga2":
-                    front = nsga2_optimize(
-                        m, evaluator, generations=gens, population_size=pop,
-                        blob_fraction=best_p["blob_fraction"],
-                        mutation_rate=best_p["mutation_rate"],
-                        warm_fraction=best_p["warm_fraction"],
-                        random_seed=seed, verbose=False,
-                    )
-                    scores.append(min(f[1].composite_score() for f in front))
-                else:
-                    s, _ = sga_optimize(
-                        m, evaluator, generations=gens, population_size=pop,
-                        blob_fraction=best_p["blob_fraction"],
-                        mutation_rate=best_p["mutation_rate"],
-                        warm_fraction=best_p["warm_fraction"],
-                        random_seed=seed, verbose=False,
-                    )
-                    scores.append(s.composite_score())
-            elif args.algo == "ts":
-                s, _, _ = improve_balance_tabu(
-                    m, evaluator, max_evaluations=args.iter_budget,
-                    tabu_tenure=best_p["tabu_tenure"],
-                    random_seed=seed, verbose=False,
-                )
-                scores.append(s.composite_score())
-            del m
-            gc.collect()
-        fold_mean = statistics.mean(scores)
-        fold_scores.append(fold_mean)
-        print(f"  Fold {fold_idx + 1}/{k_folds}: mean={fold_mean:.4f} (n={len(scores)})")
-
-    cv_mean = statistics.mean(fold_scores)
-    cv_std = statistics.stdev(fold_scores) if len(fold_scores) > 1 else 0.0
-    print(f"  CV summary: {cv_mean:.4f} ± {cv_std:.4f}")
 
     # ── Held-out validation (seeds base+eval_seeds to base+eval_seeds+50) ─
     held_out_base = args.base_seed + args.eval_seeds
@@ -448,7 +395,7 @@ def main() -> int:
                     m, evaluator, generations=gens, population_size=pop,
                     blob_fraction=best_p["blob_fraction"],
                     mutation_rate=best_p["mutation_rate"],
-                    warm_fraction=best_p["warm_fraction"],
+                    warm_fraction=0,
                     random_seed=seed, verbose=False,
                 )
                 held_out_scores.append(min(f[1].composite_score() for f in front))
@@ -462,7 +409,7 @@ def main() -> int:
                 )
                 held_out_scores.append(s.composite_score())
         elif args.algo == "ts":
-            s, _, _ = improve_balance_tabu(
+            s, _, _, _ = improve_balance_tabu(
                 m, evaluator, max_evaluations=args.iter_budget,
                 tabu_tenure=best_p["tabu_tenure"],
                 random_seed=seed, verbose=False,
@@ -478,20 +425,18 @@ def main() -> int:
     # ── Write best_params.json (enriched with validation data) ────────────
     best_params_path = run_dir / "best_params.json"
     best_params = {
-        "algorithm":         args.algo,
-        "best_value":        round(study.best_value, 6),
-        "best_params":       {k: round(v, 6) for k, v in study.best_params.items()},
-        "n_trials":          args.trials,
-        "eval_seeds":        args.eval_seeds,
-        "iter_budget":       args.iter_budget,
-        "cv_k_folds":        k_folds,
-        "cv_fold_scores":    [round(s, 6) for s in fold_scores],
-        "cv_mean":           round(cv_mean, 6),
-        "cv_std":            round(cv_std, 6),
-        "held_out_seeds":    held_out_size,
+        "algorithm":          args.algo,
+        "best_value":         round(study.best_value, 6),
+        "best_params":        {k: round(v, 6) for k, v in study.best_params.items()},
+        "n_trials":           args.trials,
+        "eval_seeds":         args.eval_seeds,
+        "iter_budget":        args.iter_budget,
+        "train_test_split":   "train=eval_seeds, test=50 held-out",
+        "held_out_seeds":     held_out_size,
         "held_out_base_seed": held_out_base,
-        "held_out_mean":     round(held_out_mean, 6),
-        "held_out_std":      round(held_out_std, 6),
+        "held_out_mean":      round(held_out_mean, 6),
+        "held_out_std":       round(held_out_std, 6),
+        "held_out_scores":    [round(s, 6) for s in held_out_scores],
     }
     with open(best_params_path, "w") as f:
         json.dump(best_params, f, indent=2)
@@ -501,8 +446,7 @@ def main() -> int:
     print(f"Tuning complete in {total_time/60:.1f} min")
     print(f"Best value    : {study.best_value:.4f}")
     print(f"Best params   : {study.best_params}")
-    print(f"CV validation : {cv_mean:.4f} ± {cv_std:.4f}")
-    print(f"Held-out val  : {held_out_mean:.4f} ± {held_out_std:.4f}")
+    print(f"Held-out val  : {held_out_mean:.4f} ± {held_out_std:.4f} (train/test split, no CV)")
     print(f"Best params   → {best_params_path}")
     print(f"Trial history → {csv_path}")
 
