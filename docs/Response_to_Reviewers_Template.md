@@ -78,5 +78,5 @@ For unified Hypervolume (HV) analysis, we apply the same logic: for a chosen bud
 
 ## Data sources for filling in numbers
 
-- **Held-out / CV means and stds:** After running `scripts/optimize_hyperparameters.py`, read the Optuna run directory (e.g. `output/optuna_YYYYMMDD_HHMMSS/best_params.json`). Fields: `cv_mean`, `cv_std`, `held_out_mean`, `held_out_std`. Use these in the Methodology §3.6 and in Response #4.
+- **Held-out / CV means and stds:** After running `scripts/optimize_hyperparameters.py`, read the run directory (e.g. `output/optuna_YYYYMMDD_HHMMSS/best_params.json`). Fields: `cv_mean`, `cv_std`, `held_out_mean`, `held_out_std` (and optionally `cv_se`, `cv_ci_lower`, `cv_ci_upper`). TS tuning uses exhaustive grid search over the tenure coefficient k (θ = max(3, ⌈k·√S⌉)), not Optuna; training and held-out stats are reported for all algorithms. Use these in the Methodology §3.6 and in Response #4.
 - **Friedman / Wilcoxon p-values:** Run `scripts/analyze_benchmark.py <results.csv> --budget <N>`; read `stats/full_report.txt` and optionally `stats/pairwise_tests.csv`.

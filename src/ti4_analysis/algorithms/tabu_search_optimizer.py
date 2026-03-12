@@ -39,6 +39,9 @@ def improve_balance_tabu(
     random_seed: Optional[int] = None,
     verbose: bool = True,
     tabu_tenure: Optional[int] = None,
+    tabu_tenure_coefficient: Optional[float] = None,
+    use_attribute_tabu: bool = False,
+    stagnation_threshold: Optional[int] = None,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]], int, int]:
     """
     Improve map balance using Tabu Search over the composite fitness.
@@ -47,6 +50,10 @@ def improve_balance_tabu(
     non-tabu move (or aspirational tabu move), and adds the reverse swap
     to the tabu list for `tabu_tenure` iterations.
 
+    Tenure is resolved as: θ = max(3, ⌈k·√S⌉). If tabu_tenure (int) is given
+    it is used directly; else if tabu_tenure_coefficient (float) is given
+    then tenure = max(3, ceil(k * sqrt(S))); else default k=1 (Glover 1989).
+
     Args:
         ti4_map: Map to optimize (modified in-place)
         evaluator: Balance evaluator
@@ -54,8 +61,11 @@ def improve_balance_tabu(
         weights: Objective weights (morans_i, jains_index, lisa_penalty; sum to 1.0)
         random_seed: Random seed for reproducibility
         verbose: Print progress messages
-        tabu_tenure: Number of iterations a swap remains forbidden.
-            Default: ceil(sqrt(S)), a standard heuristic (Glover 1989).
+        tabu_tenure: Number of iterations a swap remains forbidden (fixed value).
+        tabu_tenure_coefficient: If set, tenure = max(3, ceil(k * sqrt(S))). Ignored if tabu_tenure is set.
+        use_attribute_tabu: If True, also tabu (position, system_id) assignments for tenure steps.
+        stagnation_threshold: If set, after this many iterations without improvement, apply random
+            diversification swaps and reset. Typical: X = max(1, int(0.1 * C(S, 2))). If None, disabled.
 
     Returns:
         Tuple of (best_score, history, evals_to_best, iterations_completed)
@@ -63,6 +73,8 @@ def improve_balance_tabu(
         evals_to_best is the evaluation count when the incumbent was last improved
         iterations_completed is the number of TS iterations (full or partial) executed
     """
+    import math as _math
+
     if random_seed is not None:
         random.seed(random_seed)
 
@@ -77,9 +89,15 @@ def improve_balance_tabu(
     swap_pairs = list(combinations(range(S), 2))
     neighborhood_size = len(swap_pairs)
 
-    if tabu_tenure is None:
-        import math as _math
-        tabu_tenure = max(3, int(_math.ceil(S ** 0.5)))
+    # Resolve tenure: fixed int > coefficient k > default k=1
+    if tabu_tenure is not None:
+        tenure = int(tabu_tenure)
+    elif tabu_tenure_coefficient is not None:
+        k = float(tabu_tenure_coefficient)
+        tenure = max(3, int(_math.ceil(k * (S ** 0.5))))
+    else:
+        tenure = max(3, int(_math.ceil(S ** 0.5)))
+    tabu_tenure = tenure
 
     current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
     best_score = current_score
@@ -89,9 +107,12 @@ def improve_balance_tabu(
 
     # (min_idx, max_idx) → iteration number when the tabu expires
     tabu_dict: Dict[Tuple[int, int], int] = {}
+    # (s_pos, system_id) → expiry iteration (when use_attribute_tabu)
+    tabu_attrs: Dict[Tuple[int, int], int] = {}
 
     total_evals = 0
     iteration = 0
+    iterations_since_improvement = 0
 
     if verbose:
         print(
@@ -119,7 +140,17 @@ def improve_balance_tabu(
             c_composite = candidate.composite_score()
             total_evals += 1
 
-            is_tabu = (s_i, s_j) in tabu_dict and tabu_dict[(s_i, s_j)] > iteration
+            is_tabu_pair = (s_i, s_j) in tabu_dict and tabu_dict[(s_i, s_j)] > iteration
+            is_tabu_attr = False
+            if use_attribute_tabu:
+                # Forbid if placing system at s_j onto s_i (or system at s_i onto s_j) is tabu
+                id_at_j = swappable_spaces[s_j].system.id
+                id_at_i = swappable_spaces[s_i].system.id
+                is_tabu_attr = (
+                    ((s_i, id_at_j) in tabu_attrs and tabu_attrs[(s_i, id_at_j)] > iteration)
+                    or ((s_j, id_at_i) in tabu_attrs and tabu_attrs[(s_j, id_at_i)] > iteration)
+                )
+            is_tabu = is_tabu_pair or is_tabu_attr
 
             if is_tabu:
                 if c_composite < best_tabu_composite:
@@ -159,18 +190,46 @@ def improve_balance_tabu(
         current_score = chosen_score
 
         tabu_dict[(s_i, s_j)] = iteration + tabu_tenure
+        if use_attribute_tabu:
+            tabu_attrs[(s_i, swappable_spaces[s_i].system.id)] = iteration + tabu_tenure
+            tabu_attrs[(s_j, swappable_spaces[s_j].system.id)] = iteration + tabu_tenure
 
         if current_score.composite_score() < best_composite:
             best_score = current_score
             best_composite = best_score.composite_score()
             best_etb = total_evals
+            iterations_since_improvement = 0
             if verbose:
                 print(
                     f"  Iter {iteration} (evals={total_evals}): "
                     f"NEW BEST {best_score}"
                 )
+        else:
+            iterations_since_improvement += 1
 
         history.append((total_evals, current_score))
+
+        # Stagnation diversification: random swaps to escape plateaus
+        if stagnation_threshold is not None and iterations_since_improvement >= stagnation_threshold:
+            n_swaps = random.randint(1, 3)
+            for _ in range(n_swaps):
+                a, b = random.sample(range(S), 2)
+                fast_state.swap(a, b)
+                swappable_spaces[a].system, swappable_spaces[b].system = (
+                    swappable_spaces[b].system, swappable_spaces[a].system
+                )
+            if total_evals < max_evaluations:
+                current_score = evaluate_map_multiobjective(
+                    ti4_map, evaluator, weights, fast_state
+                )
+                total_evals += 1
+                history.append((total_evals, current_score))
+                if current_score.composite_score() < best_composite:
+                    best_score = current_score
+                    best_composite = best_score.composite_score()
+                    best_etb = total_evals
+                    iterations_since_improvement = 0
+            iterations_since_improvement = 0  # reset after diversification
 
     # Use remaining budget for a partial neighbourhood scan
     remaining = max_evaluations - total_evals
@@ -195,7 +254,16 @@ def improve_balance_tabu(
             c_composite = candidate.composite_score()
             total_evals += 1
 
-            is_tabu = (s_i, s_j) in tabu_dict and tabu_dict[(s_i, s_j)] > iteration
+            is_tabu_pair = (s_i, s_j) in tabu_dict and tabu_dict[(s_i, s_j)] > iteration
+            is_tabu_attr = False
+            if use_attribute_tabu:
+                id_at_j = swappable_spaces[s_j].system.id
+                id_at_i = swappable_spaces[s_i].system.id
+                is_tabu_attr = (
+                    ((s_i, id_at_j) in tabu_attrs and tabu_attrs[(s_i, id_at_j)] > iteration)
+                    or ((s_j, id_at_i) in tabu_attrs and tabu_attrs[(s_j, id_at_i)] > iteration)
+                )
+            is_tabu = is_tabu_pair or is_tabu_attr
 
             if is_tabu:
                 if c_composite < best_tabu_composite:
@@ -227,6 +295,9 @@ def improve_balance_tabu(
             )
             current_score = chosen_score
             tabu_dict[(s_i, s_j)] = iteration + tabu_tenure
+            if use_attribute_tabu:
+                tabu_attrs[(s_i, swappable_spaces[s_i].system.id)] = iteration + tabu_tenure
+                tabu_attrs[(s_j, swappable_spaces[s_j].system.id)] = iteration + tabu_tenure
             if current_score.composite_score() < best_composite:
                 best_score = current_score
                 best_composite = best_score.composite_score()

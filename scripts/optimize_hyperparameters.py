@@ -2,9 +2,10 @@
 """
 Optuna hyperparameter tuning for the TI4 map optimization algorithms.
 
-Tunes the free parameters of SA, NSGA-II, or Tabu Search using
-Bayesian optimization (TPE sampler).  Evaluation seeds are deliberately
-disjoint from benchmark seeds (default base_seed=9000 vs benchmark 0-999)
+Tunes the free parameters of SA, NSGA-II, SGA, or Tabu Search. SA/NSGA-II/SGA
+use Bayesian optimization (TPE sampler). TS uses exhaustive grid search over
+the tenure coefficient k with θ = max(3, ⌈k·√S⌉). Evaluation seeds are
+deliberately disjoint from benchmark seeds (default base_seed=9000 vs benchmark 0-999)
 to prevent overfitting the hyperparameters to specific map layouts.
 
 Usage:
@@ -21,16 +22,17 @@ NSGA-II search space:
     mutation_rate            [0.01, 0.30]   — per-position swap probability
     (warm_fraction fixed to 0 — cold-start only for Pareto diversity)
 
-TS search space:
-    tabu_tenure              [3, 20]        — iterations a swap stays forbidden
+TS search space (grid, not Optuna):
+    tabu_tenure_coefficient k  — grid over k; θ = max(3, ⌈k·√S⌉) per map
 
 Outputs (inside --output-dir / optuna_YYYYMMDD_HHMMSS/):
-    best_params.json  — optimal hyperparameters + best objective value
-    trials.csv        — all trial results (for convergence plots)
+    best_params.json  — optimal hyperparameters + cv_mean, cv_std, held_out_*
+    trials.csv        — all trial results (Optuna algos only)
+    grid_trials.csv   — TS only: k, mean, std, se, ci_lower, ci_upper, cv
     run_config.json   — CLI params + git hash for reproducibility
 
-Validation: fixed train/test split only. Optuna trains on eval_seeds;
-validation is on 50 held-out seeds. No cross-validation.
+Validation: fixed train/test split. Training on eval_seeds; 50 held-out seeds.
+best_params.json includes cv_mean and cv_std for overfitting comparison.
 """
 
 import argparse
@@ -191,57 +193,80 @@ def objective_sga(trial, args, evaluator, generate_random_map, sga_optimize):
     return statistics.mean(scores)
 
 
-def objective_ts(trial, args, evaluator, generate_random_map, improve_balance_tabu):
-    """Objective for TS: mean composite_score over eval_seeds random maps."""
-    tenure = trial.suggest_int("tabu_tenure", 3, 20)
+# TS grid: k in [0.5, 4.0] step 0.2 (θ = max(3, ceil(k·√S)) for typical S≈20–40)
+TS_GRID_K = [round(0.5 + i * 0.2, 2) for i in range(18)]
 
-    scores = []
-    for i in range(args.eval_seeds):
-        seed = args.base_seed + i
-        m = generate_random_map(
-            player_count=args.players,
-            template_name="normal",
-            include_pok=True,
-            random_seed=seed,
-        )
-        score, _, _, iters_completed = improve_balance_tabu(
-            m, evaluator,
-            max_evaluations=args.iter_budget,
-            tabu_tenure=tenure,
-            random_seed=seed,
-            verbose=False,
-        )
-        if i == 0:
-            print(
-                f"  [TS tuning] trial={trial.number} seed={seed} "
-                f"tenure={tenure} iters={iters_completed} budget={args.iter_budget}"
-            )
-        scores.append(score.composite_score())
-        del m
-        gc.collect()
 
-    return statistics.mean(scores)
+def _stats_from_scores(scores: list) -> dict:
+    """Compute mean, std, SE, 95% CI, and CV from a list of scores."""
+    n = len(scores)
+    mean = statistics.mean(scores)
+    std = statistics.stdev(scores) if n > 1 else 0.0
+    se = std / (n ** 0.5) if n > 0 else 0.0
+    ci_half = 1.96 * se
+    cv = (std / mean) if mean and mean != 0 else 0.0
+    return {
+        "mean": mean,
+        "std": std,
+        "se": se,
+        "ci_lower": mean - ci_half,
+        "ci_upper": mean + ci_half,
+        "cv": cv,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
+def _run_ts_grid(args, run_dir: Path, evaluator, generate_random_map, improve_balance_tabu) -> tuple:
+    """Run grid search over k for TS. Returns (best_k, best_value, grid_rows, run_start)."""
+    run_start = time.time()
+    grid_rows = []
+    for idx, k in enumerate(TS_GRID_K):
+        scores = []
+        for i in range(args.eval_seeds):
+            seed = args.base_seed + i
+            m = generate_random_map(
+                player_count=args.players,
+                template_name="normal",
+                include_pok=True,
+                random_seed=seed,
+            )
+            score, _, _, _ = improve_balance_tabu(
+                m, evaluator,
+                max_evaluations=args.iter_budget,
+                tabu_tenure_coefficient=k,
+                random_seed=seed,
+                verbose=False,
+            )
+            scores.append(score.composite_score())
+            del m
+            gc.collect()
+        st = _stats_from_scores(scores)
+        grid_rows.append({
+            "k": k,
+            "mean": st["mean"],
+            "std": st["std"],
+            "se": st["se"],
+            "ci_lower": st["ci_lower"],
+            "ci_upper": st["ci_upper"],
+            "cv": st["cv"],
+            "scores": scores,
+        })
+        best_so_far = min(r["mean"] for r in grid_rows)
+        elapsed = time.time() - run_start
+        print(
+            f"  grid {idx + 1:3d}/{len(TS_GRID_K)}  k={k:.2f}  "
+            f"mean={st['mean']:.4f}  std={st['std']:.4f}  "
+            f"best={best_so_far:.4f}  elapsed={elapsed:.0f}s"
+        )
+    best_row = min(grid_rows, key=lambda r: r["mean"])
+    return best_row["k"], best_row["mean"], grid_rows, run_start
+
+
 def main() -> int:
     args = parse_args()
-
-    # Check Optuna availability before doing anything heavy
-    try:
-        import optuna
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-    except ImportError:
-        print(
-            "ERROR: Optuna is not installed.\n"
-            "Install it with:  pip install optuna\n"
-            "Then re-run this script.",
-            file=sys.stderr,
-        )
-        return 1
 
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.spatial_optimizer import improve_balance_spatial
@@ -254,21 +279,20 @@ def main() -> int:
 
     # Create run directory
     run_name = datetime.now().strftime("optuna_%Y%m%d_%H%M%S")
-    run_dir  = Path(args.output_dir) / run_name
+    run_dir = Path(args.output_dir) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Persist config
     gen, pop = _nsga2_budget(args.iter_budget)
     config = {
-        "run_name":   run_name,
-        "algo":       args.algo,
-        "trials":     args.trials,
+        "run_name": run_name,
+        "algo": args.algo,
+        "trials": args.trials,
         "eval_seeds": args.eval_seeds,
         "iter_budget": args.iter_budget,
-        "nsga2_gen":  gen,
-        "nsga2_pop":  pop,
-        "base_seed":  args.base_seed,
-        "players":    args.players,
+        "nsga2_gen": gen,
+        "nsga2_pop": pop,
+        "base_seed": args.base_seed,
+        "players": args.players,
         "started_at": datetime.now().isoformat(),
     }
     try:
@@ -283,41 +307,125 @@ def main() -> int:
     with open(run_dir / "run_config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    csv_path = run_dir / "trials.csv"
-
     print(f"Run directory : {run_dir}")
     print(f"Algorithm     : {args.algo.upper()}")
-    print(f"Trials        : {args.trials}")
-    print(f"Eval seeds    : {args.eval_seeds}  (base_seed={args.base_seed})")
-    print(f"Iter budget   : {args.iter_budget}", end="")
-    if args.algo == "nsga2":
-        print(f"  → {gen} gen × {pop} pop = {gen * pop} evals")
-    else:
-        print()
+    print(f"Eval seeds   : {args.eval_seeds}  (base_seed={args.base_seed})")
+    print(f"Iter budget  : {args.iter_budget}")
     print()
 
-    # Open CSV for streaming trial results
+    held_out_base = args.base_seed + args.eval_seeds
+    held_out_size = 50
+    held_out_seeds = list(range(held_out_base, held_out_base + held_out_size))
+
+    # ── TS: grid search over k (no Optuna) ───────────────────────────────────
+    if args.algo == "ts":
+        print(f"TS grid: {len(TS_GRID_K)} values of k (θ = max(3, ceil(k·√S)))")
+        best_k, best_value, grid_rows, run_start = _run_ts_grid(
+            args, run_dir, evaluator, generate_random_map, improve_balance_tabu
+        )
+        grid_path = run_dir / "grid_trials.csv"
+        with open(grid_path, "w", newline="") as gf:
+            gw = csv.DictWriter(
+                gf,
+                fieldnames=["k", "mean", "std", "se", "ci_lower", "ci_upper", "cv"],
+            )
+            gw.writeheader()
+            for r in grid_rows:
+                gw.writerow({k: round(r[k], 6) if isinstance(r[k], float) else r[k]
+                             for k in gw.fieldnames})
+        print(f"\nGrid trials → {grid_path}")
+
+        best_row = min(grid_rows, key=lambda r: r["mean"])
+        cv_mean = best_row["mean"]
+        cv_std = best_row["std"]
+        cv_st = _stats_from_scores(best_row["scores"])
+
+        print(f"\n--- Held-out validation ({held_out_size} seeds: "
+              f"{held_out_base}–{held_out_base + held_out_size - 1}) ---")
+        held_out_scores = []
+        for seed in held_out_seeds:
+            m = generate_random_map(
+                player_count=args.players, template_name="normal",
+                include_pok=True, random_seed=seed,
+            )
+            s, _, _, _ = improve_balance_tabu(
+                m, evaluator, max_evaluations=args.iter_budget,
+                tabu_tenure_coefficient=best_k,
+                random_seed=seed, verbose=False,
+            )
+            held_out_scores.append(s.composite_score())
+            del m
+            gc.collect()
+        held_out_mean = statistics.mean(held_out_scores)
+        held_out_std = statistics.stdev(held_out_scores) if len(held_out_scores) > 1 else 0.0
+        print(f"  Held-out mean: {held_out_mean:.4f} ± {held_out_std:.4f}")
+
+        best_params = {
+            "algorithm": args.algo,
+            "best_value": round(best_value, 6),
+            "best_params": {"tabu_tenure_coefficient": best_k},
+            "n_trials": len(TS_GRID_K),
+            "eval_seeds": args.eval_seeds,
+            "iter_budget": args.iter_budget,
+            "train_test_split": "train=eval_seeds, test=50 held-out",
+            "cv_mean": round(cv_mean, 6),
+            "cv_std": round(cv_std, 6),
+            "cv_se": round(cv_st["se"], 6),
+            "cv_ci_lower": round(cv_st["ci_lower"], 6),
+            "cv_ci_upper": round(cv_st["ci_upper"], 6),
+            "held_out_seeds": held_out_size,
+            "held_out_base_seed": held_out_base,
+            "held_out_mean": round(held_out_mean, 6),
+            "held_out_std": round(held_out_std, 6),
+            "held_out_scores": [round(s, 6) for s in held_out_scores],
+        }
+        best_params_path = run_dir / "best_params.json"
+        with open(best_params_path, "w") as f:
+            json.dump(best_params, f, indent=2)
+        total_time = time.time() - run_start
+        print()
+        print(f"Tuning complete in {total_time/60:.1f} min")
+        print(f"Best k       : {best_k}")
+        print(f"Best value   : {best_value:.4f}")
+        print(f"CV mean±std  : {cv_mean:.4f} ± {cv_std:.4f}")
+        print(f"Held-out val : {held_out_mean:.4f} ± {held_out_std:.4f}")
+        print(f"Best params  → {best_params_path}")
+        return 0
+
+    # ── Optuna path (SA, NSGA-II, SGA) ───────────────────────────────────────
+    try:
+        import optuna
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+    except ImportError:
+        print(
+            "ERROR: Optuna is not installed.\n"
+            "Install it with:  pip install optuna\n"
+            "Then re-run this script.",
+            file=sys.stderr,
+        )
+        return 1
+
+    csv_path = run_dir / "trials.csv"
+    print(f"Trials       : {args.trials}")
+
     with open(csv_path, "w", newline="") as csv_file:
-        # CSV columns vary by algorithm — write dynamically after first trial
-        writer_ref: list = [None]   # mutable container for the DictWriter
+        writer_ref: list = [None]
 
         def csv_callback(study, trial):
             if trial.value is None:
-                return  # pruned or failed trial
+                return
             row = {"trial": trial.number, "value": round(trial.value, 6), **trial.params}
             if writer_ref[0] is None:
                 writer_ref[0] = csv.DictWriter(csv_file, fieldnames=list(row.keys()))
                 writer_ref[0].writeheader()
             writer_ref[0].writerow(row)
             csv_file.flush()
-
             best = study.best_value
             elapsed = time.time() - run_start
             print(
                 f"  trial {trial.number:3d}/{args.trials}  "
                 f"value={trial.value:.4f}  best={best:.4f}  "
-                f"params={trial.params}  "
-                f"elapsed={elapsed:.0f}s"
+                f"params={trial.params}  elapsed={elapsed:.0f}s"
             )
 
         study_name = args.study_name or run_name
@@ -337,20 +445,15 @@ def main() -> int:
             obj = lambda trial: objective_nsga2(
                 trial, args, evaluator, generate_random_map, nsga2_optimize
             )
-        elif args.algo == "sga":
+        else:
             obj = lambda trial: objective_sga(
                 trial, args, evaluator, generate_random_map, sga_optimize
-            )
-        else:
-            obj = lambda trial: objective_ts(
-                trial, args, evaluator, generate_random_map, improve_balance_tabu
             )
 
         run_start = time.time()
         study.optimize(obj, n_trials=args.trials, callbacks=[csv_callback],
                        n_jobs=args.workers)
 
-    # ── Optuna convergence plot (trial number vs best-so-far) ───────────────
     convergence_path = run_dir / "optuna_convergence.csv"
     trials_sorted = sorted(study.trials, key=lambda t: t.number)
     best_so_far = float('inf')
@@ -367,14 +470,49 @@ def main() -> int:
 
     best_p = study.best_params
 
-    # ── Held-out validation (seeds base+eval_seeds to base+eval_seeds+50) ─
-    held_out_base = args.base_seed + args.eval_seeds
-    held_out_size = 50
-    held_out_seeds = list(range(held_out_base, held_out_base + held_out_size))
-    held_out_scores = []
+    # Re-run best trial to get per-seed scores for cv_mean, cv_std
+    cv_scores = []
+    for i in range(args.eval_seeds):
+        seed = args.base_seed + i
+        m = generate_random_map(
+            player_count=args.players, template_name="normal",
+            include_pok=True, random_seed=seed,
+        )
+        if args.algo == "sa":
+            s, _, _ = improve_balance_spatial(
+                m, evaluator, iterations=args.iter_budget,
+                initial_acceptance_rate=best_p["initial_acceptance_rate"],
+                min_temp=best_p["min_temp"],
+                random_seed=seed, verbose=False,
+            )
+            cv_scores.append(s.composite_score())
+        elif args.algo == "nsga2":
+            gens, pop = _nsga2_budget(args.iter_budget)
+            front = nsga2_optimize(
+                m, evaluator, generations=gens, population_size=pop,
+                blob_fraction=best_p["blob_fraction"],
+                mutation_rate=best_p["mutation_rate"],
+                warm_fraction=0,
+                random_seed=seed, verbose=False,
+            )
+            cv_scores.append(min(f[1].composite_score() for f in front))
+        else:
+            gens, pop = _nsga2_budget(args.iter_budget)
+            s, _ = sga_optimize(
+                m, evaluator, generations=gens, population_size=pop,
+                blob_fraction=best_p["blob_fraction"],
+                mutation_rate=best_p["mutation_rate"],
+                warm_fraction=best_p["warm_fraction"],
+                random_seed=seed, verbose=False,
+            )
+            cv_scores.append(s.composite_score())
+        del m
+        gc.collect()
+    cv_st = _stats_from_scores(cv_scores)
 
     print(f"\n--- Held-out validation ({held_out_size} seeds: "
           f"{held_out_base}–{held_out_base + held_out_size - 1}) ---")
+    held_out_scores = []
     for seed in held_out_seeds:
         m = generate_random_map(
             player_count=args.players, template_name="normal",
@@ -408,13 +546,6 @@ def main() -> int:
                     random_seed=seed, verbose=False,
                 )
                 held_out_scores.append(s.composite_score())
-        elif args.algo == "ts":
-            s, _, _, _ = improve_balance_tabu(
-                m, evaluator, max_evaluations=args.iter_budget,
-                tabu_tenure=best_p["tabu_tenure"],
-                random_seed=seed, verbose=False,
-            )
-            held_out_scores.append(s.composite_score())
         del m
         gc.collect()
 
@@ -422,21 +553,25 @@ def main() -> int:
     held_out_std = statistics.stdev(held_out_scores) if len(held_out_scores) > 1 else 0.0
     print(f"  Held-out mean: {held_out_mean:.4f} ± {held_out_std:.4f}")
 
-    # ── Write best_params.json (enriched with validation data) ────────────
     best_params_path = run_dir / "best_params.json"
     best_params = {
-        "algorithm":          args.algo,
-        "best_value":         round(study.best_value, 6),
-        "best_params":        {k: round(v, 6) for k, v in study.best_params.items()},
-        "n_trials":           args.trials,
-        "eval_seeds":         args.eval_seeds,
-        "iter_budget":        args.iter_budget,
-        "train_test_split":   "train=eval_seeds, test=50 held-out",
-        "held_out_seeds":     held_out_size,
+        "algorithm": args.algo,
+        "best_value": round(study.best_value, 6),
+        "best_params": {k: round(v, 6) for k, v in study.best_params.items()},
+        "n_trials": args.trials,
+        "eval_seeds": args.eval_seeds,
+        "iter_budget": args.iter_budget,
+        "train_test_split": "train=eval_seeds, test=50 held-out",
+        "cv_mean": round(cv_st["mean"], 6),
+        "cv_std": round(cv_st["std"], 6),
+        "cv_se": round(cv_st["se"], 6),
+        "cv_ci_lower": round(cv_st["ci_lower"], 6),
+        "cv_ci_upper": round(cv_st["ci_upper"], 6),
+        "held_out_seeds": held_out_size,
         "held_out_base_seed": held_out_base,
-        "held_out_mean":      round(held_out_mean, 6),
-        "held_out_std":       round(held_out_std, 6),
-        "held_out_scores":    [round(s, 6) for s in held_out_scores],
+        "held_out_mean": round(held_out_mean, 6),
+        "held_out_std": round(held_out_std, 6),
+        "held_out_scores": [round(s, 6) for s in held_out_scores],
     }
     with open(best_params_path, "w") as f:
         json.dump(best_params, f, indent=2)
@@ -446,6 +581,7 @@ def main() -> int:
     print(f"Tuning complete in {total_time/60:.1f} min")
     print(f"Best value    : {study.best_value:.4f}")
     print(f"Best params   : {study.best_params}")
+    print(f"CV mean±std   : {cv_st['mean']:.4f} ± {cv_st['std']:.4f}")
     print(f"Held-out val  : {held_out_mean:.4f} ± {held_out_std:.4f} (train/test split, no CV)")
     print(f"Best params   → {best_params_path}")
     print(f"Trial history → {csv_path}")

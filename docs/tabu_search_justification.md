@@ -16,7 +16,7 @@ Including TS in the benchmark addresses the following research question: **Is SA
 
 The Terra Mystica PCG literature (Grichshenko et al., 2020) demonstrated TS superiority over steepest-ascent hill-climbing, but this comparison is not informative about SA because steepest-ascent HC cannot escape *any* local optimum and serves as a weaker baseline than SA. No published evidence demonstrates that TS produces superior map configurations to SA on combinatorial tile-placement problems when both algorithms receive the same evaluation budget.
 
-By including TS with Optuna-tuned `tabu_tenure` (tuned symmetrically with SA's and NSGA-II's hyperparameters on a disjoint seed range), the benchmark produces one of three outcomes:
+By including TS with a grid-tuned tenure coefficient k (θ = max(3, ⌈k·√S⌉), tuned on the same disjoint seed range as SA and NSGA-II), the benchmark produces one of three outcomes:
 
 1. **TS ≈ SA at convergence:** SA's stochastic escape is functionally equivalent to TS's deterministic memory for this problem class. SA's lower per-iteration cost (1 evaluation vs C(S,2)) makes it the strictly superior production algorithm.
 

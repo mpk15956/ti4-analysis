@@ -51,6 +51,8 @@ def parse_args() -> argparse.Namespace:
                    help="Parallel workers (default: 1 = sequential)")
     p.add_argument("--ts-tenure",   type=int, default=None,
                    help="TS tabu tenure (default: ceil(sqrt(S)))")
+    p.add_argument("--ts-k",        type=float, default=None,
+                   help="TS tenure coefficient k: θ = max(3, ceil(k·√S)). Overrides --ts-tenure if set.")
     p.add_argument("--sa-rate",     type=float, default=0.80,
                    help="SA initial_acceptance_rate (default: 0.80)")
     p.add_argument("--sa-min-temp", type=float, default=0.01,
@@ -180,7 +182,7 @@ def _run_seed(job):
     global _evaluator
     (seed, algos_list, budget, hc_iter, sa_iter, nsga_gen,
      players, sa_rate, sa_min_temp, nsga_pop, nsga_blob,
-     nsga_mut, nsga_warm, ts_tenure,
+     nsga_mut, nsga_warm, ts_tenure, ts_k,
      sga_blob, sga_mut, sga_warm) = job
 
     algos = set(algos_list)
@@ -377,12 +379,17 @@ def _run_seed(job):
         if "ts" in algos:
             ts_map = initial_map.copy()
             t0 = time.time()
+            ts_kw = {}
+            if ts_k is not None:
+                ts_kw["tabu_tenure_coefficient"] = ts_k
+            elif ts_tenure is not None:
+                ts_kw["tabu_tenure"] = ts_tenure
             ts_score, ts_history, ts_etb, _ = improve_balance_tabu(
                 ts_map, evaluator,
                 max_evaluations=budget,
-                tabu_tenure=ts_tenure,
                 random_seed=seed,
                 verbose=False,
+                **ts_kw,
             )
             rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
                                  evals_to_best=ts_etb))
@@ -445,6 +452,8 @@ def main() -> int:
         "nsga_gen":   args.nsga_gen,
         "nsga_pop":   args.nsga_pop,
         "nsga_evals": args.nsga_gen * args.nsga_pop,
+        "ts_tenure":   args.ts_tenure,
+        "ts_k":        args.ts_k,
         "started_at": datetime.now().isoformat(),
     }
     try:
@@ -503,7 +512,7 @@ def main() -> int:
                 jobs = [
                     (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
                      args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
-                     args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure,
+                     args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure, args.ts_k,
                      args.sga_blob, args.sga_mut, args.sga_warm)
                     for seed in range(args.base_seed, args.base_seed + args.seeds)
                 ]

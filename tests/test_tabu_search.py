@@ -145,3 +145,43 @@ class TestTabuSearch:
 
         with pytest.raises(ValueError, match="Not enough swappable"):
             improve_balance_tabu(ti4_map, evaluator, max_evaluations=100)
+
+    def test_ts_tenure_coefficient_equivalent_to_default(self):
+        """With k=1.0, tenure equals default ceil(sqrt(S)); same seed gives same result."""
+        ti4_map1, evaluator = _make_four_system_map()
+        ti4_map2 = ti4_map1.copy()
+
+        score1, _, _, _ = improve_balance_tabu(
+            ti4_map1, evaluator, max_evaluations=200, random_seed=42,
+            verbose=False, tabu_tenure_coefficient=1.0
+        )
+        score2, _, _, _ = improve_balance_tabu(
+            ti4_map2, evaluator, max_evaluations=200, random_seed=42,
+            verbose=False
+        )
+
+        assert score1.composite_score() == pytest.approx(
+            score2.composite_score(), rel=1e-6
+        )
+
+    def test_ts_stagnation_threshold_completes(self):
+        """With stagnation_threshold set, TS completes without error."""
+        ti4_map, evaluator = _make_four_system_map()
+        # S=4, C(4,2)=6, so 0.1*6=0.6 -> max(1,0)=1
+        score, history, _, _ = improve_balance_tabu(
+            ti4_map, evaluator, max_evaluations=80, random_seed=123,
+            verbose=False, stagnation_threshold=1
+        )
+        assert isinstance(score, MultiObjectiveScore)
+        assert len(history) >= 1
+
+    def test_ts_use_attribute_tabu_completes(self):
+        """With use_attribute_tabu=True, TS completes successfully."""
+        ti4_map, evaluator = _make_four_system_map()
+        score, history, _, _ = improve_balance_tabu(
+            ti4_map, evaluator, max_evaluations=100, random_seed=42,
+            verbose=False, use_attribute_tabu=True
+        )
+        assert isinstance(score, MultiObjectiveScore)
+        assert len(history) >= 1
+        assert 0.0 <= score.jains_index <= 1.0
