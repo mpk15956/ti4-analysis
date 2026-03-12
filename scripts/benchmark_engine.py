@@ -201,6 +201,7 @@ def _run_seed(job):
     evaluator = _evaluator
     rows = []
     _pareto_archives = []
+    _hv_archives = []  # (algorithm, seed, budget, rows[jains_index,morans_i,lisa_penalty])
     seed_start = time.time()
 
     try:
@@ -211,6 +212,37 @@ def _run_seed(job):
             random_seed=seed,
         )
 
+        # Helper: incremental empirical Pareto front over MultiObjectiveScore
+        def _update_front(front, score):
+            """
+            Maintain a non-dominated set over canonical objectives:
+            1-JFI, |Moran's I|, LSAP (all minimised).
+            """
+            # Discard if dominated by an existing point (or effectively identical)
+            for f in front:
+                if f.dominates(score):
+                    return front
+                if (f.jains_index == score.jains_index and
+                        f.morans_i == score.morans_i and
+                        f.lisa_penalty == score.lisa_penalty):
+                    return front
+
+            # Remove any points that are dominated by the new score
+            new_front = [f for f in front if not score.dominates(f)]
+            new_front.append(score)
+            return new_front
+
+        def _front_to_rows(front):
+            """Convert a list of MultiObjectiveScore to archive rows."""
+            rows_local = []
+            for s in front:
+                rows_local.append({
+                    "jains_index": round(float(s.jains_index), 6),
+                    "morans_i": round(float(s.morans_i), 6),
+                    "lisa_penalty": round(float(s.lisa_penalty), 6),
+                })
+            return rows_local
+
         # ── Random Search (baseline) ──────────────────────────────
         if "rs" in algos:
             rs_map = initial_map.copy()
@@ -218,6 +250,7 @@ def _run_seed(job):
             topo = MapTopology.from_ti4_map(rs_map, evaluator)
             fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
             best_rs_score = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs_base)
+            rs_front = [best_rs_score]
             rng_rs = np.random.default_rng(seed)
             S = len(topo.swappable_indices)
             rs_etb = 0
@@ -228,18 +261,21 @@ def _run_seed(job):
                     if perm[i] != i:
                         fs.swap(perm[i], i)
                 candidate = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs)
+                rs_front = _update_front(rs_front, candidate)
                 if candidate.composite_score() < best_rs_score.composite_score():
                     best_rs_score = candidate
                     rs_etb = ev
                 del fs
             rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
                                  evals_to_best=rs_etb))
+            # Empirical Pareto front archive for RS
+            _hv_archives.append(("rs", seed, budget, _front_to_rows(rs_front)))
             del rs_map, topo, fs_base
 
         if "hc" in algos:
             hc_map = initial_map.copy()
             t0 = time.time()
-            hc_score, _, hc_etb = hc_optimize(
+            hc_score, hc_history, hc_etb = hc_optimize(
                 hc_map, evaluator,
                 iterations=hc_iter,
                 random_seed=seed,
@@ -247,12 +283,16 @@ def _run_seed(job):
             )
             rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
                                  evals_to_best=hc_etb))
+            hc_front = []
+            for _, sc in hc_history:
+                hc_front = _update_front(hc_front, sc)
+            _hv_archives.append(("hc", seed, budget, _front_to_rows(hc_front)))
             del hc_map
 
         if "sa" in algos:
             sa_map = initial_map.copy()
             t0 = time.time()
-            sa_score, _, sa_etb = improve_balance_spatial(
+            sa_score, sa_history, sa_etb = improve_balance_spatial(
                 sa_map, evaluator,
                 iterations=sa_iter,
                 initial_acceptance_rate=sa_rate,
@@ -262,6 +302,10 @@ def _run_seed(job):
             )
             rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
                                  evals_to_best=sa_etb))
+            sa_front = []
+            for _, sc in sa_history:
+                sa_front = _update_front(sa_front, sc)
+            _hv_archives.append(("sa", seed, budget, _front_to_rows(sa_front)))
             del sa_map
 
         if "nsga2" in algos:
@@ -283,14 +327,24 @@ def _run_seed(job):
 
             # Save Pareto archive for Track B quality indicators
             archive_rows = []
+            hv_rows = []
             for _, s in front:
+                row_jfi = round(float(s.jains_index), 6)
+                row_mi = round(float(s.morans_i), 6)
+                row_lp = round(float(s.lisa_penalty), 6)
                 archive_rows.append({
-                    "jains_index": round(float(s.jains_index), 6),
-                    "morans_i": round(float(s.morans_i), 6),
-                    "lisa_penalty": round(float(s.lisa_penalty), 6),
+                    "jains_index": row_jfi,
+                    "morans_i": row_mi,
+                    "lisa_penalty": row_lp,
                     "composite_score": round(float(s.composite_score()), 6),
                 })
+                hv_rows.append({
+                    "jains_index": row_jfi,
+                    "morans_i": row_mi,
+                    "lisa_penalty": row_lp,
+                })
             _pareto_archives.append((seed, budget, archive_rows))
+            _hv_archives.append(("nsga2", seed, budget, hv_rows))
             del nsga_map, front
 
         if "sga" in algos:
@@ -309,18 +363,21 @@ def _run_seed(job):
             )
             sga_etb = 0
             best_c = float('inf')
+            sga_front = []
             for evals, sc in sga_history:
                 if sc.composite_score() < best_c:
                     best_c = sc.composite_score()
                     sga_etb = evals
+                sga_front = _update_front(sga_front, sc)
             rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
                                  evals_to_best=sga_etb))
+            _hv_archives.append(("sga", seed, budget, _front_to_rows(sga_front)))
             del sga_map
 
         if "ts" in algos:
             ts_map = initial_map.copy()
             t0 = time.time()
-            ts_score, _, ts_etb = improve_balance_tabu(
+            ts_score, ts_history, ts_etb, _ = improve_balance_tabu(
                 ts_map, evaluator,
                 max_evaluations=budget,
                 tabu_tenure=ts_tenure,
@@ -329,9 +386,13 @@ def _run_seed(job):
             )
             rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
                                  evals_to_best=ts_etb))
+            ts_front = []
+            for _, sc in ts_history:
+                ts_front = _update_front(ts_front, sc)
+            _hv_archives.append(("ts", seed, budget, _front_to_rows(ts_front)))
             del ts_map
 
-        return True, rows, _pareto_archives
+        return True, rows, _pareto_archives, _hv_archives
 
     except Exception as exc:
         elapsed_err = time.time() - seed_start
@@ -454,8 +515,10 @@ def main() -> int:
                 pareto_archive_dir = run_dir / "pareto_archives"
                 if "nsga2" in algos:
                     pareto_archive_dir.mkdir(parents=True, exist_ok=True)
+                hv_archive_dir = run_dir / "unified_archives"
+                hv_archive_dir.mkdir(parents=True, exist_ok=True)
 
-                for ok, rows, archives in mapper(_run_seed, jobs):
+                for ok, rows, archives, hv_archives in mapper(_run_seed, jobs):
                     for row in rows:
                         writer.writerow(row)
                     csv_file.flush()
@@ -468,6 +531,16 @@ def main() -> int:
                             aw.writeheader()
                             for ar in a_rows:
                                 aw.writerow(ar)
+
+                    # Unified empirical fronts (all algorithms)
+                    for algo, h_seed, h_budget, h_rows in hv_archives:
+                        h_path = hv_archive_dir / f"unified_archive_algo{algo}_seed{h_seed}_b{h_budget}.csv"
+                        with open(h_path, "w", newline="") as hf:
+                            hw = csv.DictWriter(hf, fieldnames=["jains_index", "morans_i",
+                                                                "lisa_penalty"])
+                            hw.writeheader()
+                            for hr in h_rows:
+                                hw.writerow(hr)
 
                     if ok:
                         seeds_done += 1

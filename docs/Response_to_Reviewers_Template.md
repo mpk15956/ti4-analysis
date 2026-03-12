@@ -66,6 +66,16 @@ Pre-written rebuttal paragraphs for common critiques. Fill in specific numbers, 
 
 ---
 
+## 8. Experimental design topology and choice of non-parametric tests
+
+**Reviewer concern:** The manuscript uses Friedman and Wilcoxon signed-rank tests for algorithm comparison. Why not use Kruskal–Wallis H-test and Mann–Whitney U, which are the standard non-parametric tests suggested for non-normal data?
+
+**Response:** The experimental architecture utilizes a **randomized block design** where algorithms are evaluated on **identical initial seed configurations**. Consequently, the data consist of **dependent paired samples** across algorithms at each budget level. Independent-sample tests such as **Kruskal–Wallis** and **Mann–Whitney U** assume that groups are independent; applying them here would be statistically invalid for this topology, because they fail to isolate within-block (within-seed) variance and instead treat it as between-subject noise, inflating Type II error and obscuring real differences. We therefore retain the **Friedman omnibus test** as the mathematically correct non-parametric analogue of repeated-measures ANOVA for our blocked design, and **Wilcoxon signed-rank** for pairwise comparisons on the same seeds. These procedures explicitly exploit the paired structure of the benchmark and provide the appropriate control of error rates for repeated-measures algorithm comparisons.
+
+For unified Hypervolume (HV) analysis, we apply the same logic: for a chosen budget (e.g. 500k evaluations) we compute HV for each (algorithm, seed) from the empirical Pareto fronts saved in `unified_archives/` and then run Friedman and Wilcoxon signed-rank on the HV distributions across algorithms, with Vargha–Delaney A effect sizes, mirroring the composite-score analysis. Unified HV tables and statistics are produced by `scripts/unified_hv_analysis.py`.
+
+---
+
 ## Data sources for filling in numbers
 
 - **Held-out / CV means and stds:** After running `scripts/optimize_hyperparameters.py`, read the Optuna run directory (e.g. `output/optuna_YYYYMMDD_HHMMSS/best_params.json`). Fields: `cv_mean`, `cv_std`, `held_out_mean`, `held_out_std`. Use these in the Methodology §3.6 and in Response #4.

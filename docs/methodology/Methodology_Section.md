@@ -84,9 +84,10 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 ## 3.5 Experimental Protocol
 
 - **Seeds:** Benchmark seeds 0–99 (100 maps). Tuning seeds 9,000–9,099 (100). Held-out seeds 9,100–9,149 (50).
-- **Budget:** 1k–500k fitness evaluations per algorithm per seed (saturation study). Budget consumed as: HC/SA by iterations; SGA/NSGA-II by generations × population; TS by full-neighbourhood iterations; RS by independent samples.
+- **Budget:** 1k–500k fitness evaluations per algorithm per seed (saturation study). Budget consumed as: HC/SA by iterations; SGA/NSGA-II by generations × population; TS by full-neighbourhood iterations; RS by independent samples. Budgets are chosen on a quasi-logarithmic grid (e.g. 1k, 5k, 10k, 50k, 100k, 500k) to characterize **anytime performance**: how quickly each algorithm improves as a function of evaluations, and at what point additional budget yields diminishing returns.
 - **Hyperparameter tuning:** SA, SGA, NSGA-II, TS tuned separately on disjoint seeds (9,000–9,099) via Optuna TPE (50 trials each). Best parameters validated with 5-fold cross-validation on tuning seeds and a held-out set (9,100–9,149). **Held-out variance** is discussed in §3.6.
-- **Convergence:** `evals_to_best` recorded; convergence curves and budget utilization analyzed per budget.
+- **Design topology (randomized block / repeated measures):** The main benchmark is a **randomized block design**: the same set of 100 seeds is evaluated under every algorithm at each budget level. Observations are therefore **paired within seeds** rather than independent across algorithms.
+- **Convergence:** `evals_to_best` recorded; convergence curves and budget utilization analyzed per budget. For each budget we summarize performance via medians and interquartile ranges, and use **bootstrap 95% confidence intervals on median differences** (rather than raw empirical percentiles) to obtain stable uncertainty estimates in the presence of rugged, discrete combinatorial landscapes.
 
 ---
 
@@ -105,6 +106,10 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 **Track A — Scalar (production algorithm selection).** The 5:5:3 composite is applied to every algorithm's final solution; for NSGA-II, the Pareto-front member with minimum composite is selected (a posteriori scalarization). All six algorithms (RS, HC, SA, SGA, NSGA-II, TS) are compared via **median and IQR**, **Friedman** test, **Wilcoxon** signed-rank pairwise with Holm–Bonferroni correction, **Vargha–Delaney A**, and **bootstrap 95% CIs** on median difference. We do not base claims on mean values; we report p-values and claim one algorithm outperforms another only when the corrected p-value is below the chosen significance level.
 
 **Track B — Pareto (multi-objective quality).** NSGA-II's raw Pareto archives are evaluated with **Hypervolume (HV)**, **IGD+**, and **Spacing**. This is the primary evaluation for multi-objective performance and avoids scalarization. Scalar algorithms do not produce Pareto fronts and are compared only via Track A.
+
+**Unified HV (objective commensurability).** To place scalar and multi-objective methods in a **single objective space**, we additionally compute Hypervolume for every algorithm using **empirical Pareto fronts** extracted from the logged run histories. For each (algorithm, seed, budget), we collect the non-dominated set of visited maps in the canonical 3D space $(1 - J_{\min}, |I|, \text{LSAP})$ and compute HV against a common nadir reference point derived from the worst observed objective values (auto: worst×1.1). This yields a weight-independent, distribution-agnostic quality indicator that is commensurable across RS, HC, SA, SGA, NSGA-II, and TS. The unified HV tables and non-parametric statistics (Friedman / Wilcoxon / Vargha–Delaney) are produced by `scripts/unified_hv_analysis.py` using the `unified_archives/` emitted by `benchmark_engine.py`.
+
+**Statistical justification.** Because the design is randomized-block / repeated-measures (same seeds under all algorithms), our data consist of **dependent paired samples** across algorithms. The **Friedman** test is therefore the correct non-parametric omnibus analogue of repeated-measures ANOVA; independent-sample tests such as Kruskal–Wallis would incorrectly treat within-seed variance as between-subject noise and inflate Type II error. Likewise, pairwise comparisons use the **Wilcoxon signed-rank** test (paired) rather than Mann–Whitney U / rank-sum (independent samples), ensuring that within-seed pairing is fully exploited in the inference.
 
 ---
 
