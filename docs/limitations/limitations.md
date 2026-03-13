@@ -23,7 +23,7 @@ Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic norm
 
 2. **Getis–Ord Gi\***  
    The docstring in `spatial_metrics.py` states that |Gi*| > 1.96 implies significance; that threshold is asymptotic.  
-   - **Recommendation**: If Gi* is used for inference, use a permutation-based null for Gi* as well, or avoid significance claims. If it is only a continuous objective, do not attach a 1.96 significance interpretation.
+   - **Recommendation**: If Gi\* is used for inference, use a permutation-based null for Gi\* as well, or avoid significance claims. If it is only a continuous objective, do not attach a 1.96 significance interpretation.
 
 3. **Multiple testing (LISA)**  
    With 37 local tests, α = 0.05 per test does not control family-wise error. Bonferroni (α/37) assumes independent tests and is paralyzingly conservative for spatially correlated hex grids, leading to Type II errors.  
@@ -33,6 +33,28 @@ Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic norm
    With N=37, permutation tests are valid but have limited power against weak clustering.  
    - **Recommendation**: Report effect size and N explicitly (e.g. “number of locations with significant local clustering (permutation p < 0.05)” and “mean number of significant H-H/L-L clusters per map”). Make the “N=37, permutation-based” and “LSAP as heuristic, significance only from validation” framing explicit in the paper.
 
+5. **Goodhart's Law boundary for LSAP**
+   The continuous LSAP proxy (sum of positive variance-normalized local Moran's I_i) is
+   optimized without a significance threshold. A theoretical risk exists that the optimizer
+   exploits the proxy by generating many small, sub-threshold local statistics that
+   individually escape significance detection under permutation testing while collectively
+   lowering the objective. If this occurs, solutions with low LSAP would not map cleanly
+   to solutions with few permutation-significant clusters — the proxy would be gamed.
+
+   `validate_lisa_proxy.py` tests this boundary directly: it computes Spearman ρ and
+   Pearson r between the continuous LSAP value and the permutation-tested significant
+   cluster count (FDR-corrected, Benjamini–Hochberg q < 0.05) across a sample of
+   optimized solutions, and reports precision at proxy thresholds τ ∈ {0.5, 1.0, 2.0,
+   3.0, 5.0} (fraction of maps with LSAP < τ that have zero significant clusters). Insert
+   the Spearman ρ, Pearson r, and precision-at-τ=1.0 values from `proxy_validation_summary.json`
+   here before submission: [ρ = INSERT, r = INSERT, precision@τ=1.0 = INSERT%]. If ρ > 0.80
+   and precision at τ = 1.0 exceeds 90%, the proxy tracks the significance-tested outcome
+   closely enough to rule out systematic gaming. If ρ < 0.70, the LSAP threshold
+   sensitivity test (Task 4, `lsap_threshold_sensitivity.py`) must be re-run using the
+   thresholded variant `lisa_penalty_thresholded(τ=0.05)` as the primary objective, and
+   Track A results must be reported under both formulations with the divergence noted as
+   a limitation.
+
 ## Is this a fundamental limitation of TI4-style map optimization?
 
 - **N ≈ 37** is fixed by the game; it cannot be increased.
@@ -41,4 +63,3 @@ Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic norm
 - The only inherent limitation is **power**: with 37 tiles, very weak clustering may be undetectable. Transparency (reporting N, permutation, and effect sizes) is the appropriate response.
 
 **Bottom line:** Use permutation-based evaluation for all significance claims; treat LSAP as the optimization heuristic; do not use analytical variance or z-scores for significance at N=37; use FDR (Benjamini–Hochberg) for LISA multiple-testing correction; global Moran's I significance is reported via the permutation test in `validate_lisa_proxy.py`. Then the small-N issue is addressed rather than a permanent, unfixable flaw of TI4-style map optimization.
-
