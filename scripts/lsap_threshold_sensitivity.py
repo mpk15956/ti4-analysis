@@ -121,8 +121,8 @@ def run_sensitivity(args) -> List[dict]:
             )
             elapsed = time.time() - t0
 
-            topology = MapTopology(ti4_map)
-            fast = FastMapState(ti4_map, evaluator, topology=topology)
+            topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+            fast = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
 
             baseline_lsap    = fast.lisa_penalty()
             thresholded_lsap = fast.lisa_penalty_thresholded(tau=args.tau)
