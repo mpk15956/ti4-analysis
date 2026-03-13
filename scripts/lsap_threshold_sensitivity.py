@@ -112,17 +112,17 @@ def run_sensitivity(args) -> List[dict]:
         try:
             ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
             t0 = time.time()
-            best_map, best_score = improve_balance_spatial(
+            best_score, _, _ = improve_balance_spatial(
                 ti4_map,
                 evaluator,
-                max_iterations=args.budget,
+                iterations=args.budget,
                 initial_acceptance_rate=args.sa_rate,
                 min_temp=args.sa_min_temp,
             )
             elapsed = time.time() - t0
 
-            topology = MapTopology(best_map)
-            fast = FastMapState(best_map, evaluator, topology=topology)
+            topology = MapTopology(ti4_map)
+            fast = FastMapState(ti4_map, evaluator, topology=topology)
 
             baseline_lsap    = fast.lisa_penalty()
             thresholded_lsap = fast.lisa_penalty_thresholded(tau=args.tau)
