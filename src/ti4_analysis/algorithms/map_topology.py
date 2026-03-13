@@ -97,6 +97,7 @@ class MapTopology:
     spatial_W: object = field(compare=False)           # scipy.sparse.csr_matrix (N_sys, N_sys)
     spatial_W_swappable: object = field(compare=False)  # scipy.sparse.csr_matrix (S_conn, S_conn)
     swappable_connected_s_pos: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))  # (S_conn,)
+    lsap_divisor: float = 1.0  # n * lambda_max(spatial_W); tight LSAP normalizer, computed in from_ti4_map
 
     @classmethod
     def from_ti4_map(cls, ti4_map: 'TI4Map', evaluator: Evaluator) -> 'MapTopology':
@@ -251,6 +252,20 @@ class MapTopology:
         spatial_W = scipy.sparse.diags(1.0 / row_sums_kept) @ W_kept
         spatial_W = scipy.sparse.csr_matrix(spatial_W, dtype=np.float32)
 
+        # Tight LSAP normalizer: n * lambda_max(W).
+        # For row-stochastic W, Perron-Frobenius guarantees lambda_max <= 1, so
+        # sum_i local_I_i = n * I_global <= n * lambda_max <= n.
+        # Using the finalized spatial_W ensures consistency if normalization changes.
+        try:
+            import scipy.sparse.linalg as _spla
+            _lam = float(_spla.eigsh(
+                spatial_W.astype(np.float64), k=1, which='LM',
+                return_eigenvectors=False, tol=1e-4, maxiter=300,
+            )[0])
+        except Exception:
+            _lam = 1.0   # Perron-Frobenius fallback
+        lsap_divisor = float(N_sys) * max(_lam, 1.0)
+
         # Swappable-only adjacency (S x S) for Moran's I / LSAP over decision variables.
         # Same navigability rules; then purge zero-degree so variance = lag domain.
         S = len(swappable_indices)
@@ -294,4 +309,5 @@ class MapTopology:
             spatial_W=spatial_W,
             spatial_W_swappable=spatial_W_swappable,
             swappable_connected_s_pos=keep_sw_inds,
+            lsap_divisor=lsap_divisor,
         )

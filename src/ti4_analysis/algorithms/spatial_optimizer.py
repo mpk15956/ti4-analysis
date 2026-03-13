@@ -55,6 +55,7 @@ class MultiObjectiveScore:
         weights: Optional[Dict[str, float]] = None,
         jfi_resources: float = 1.0,
         jfi_influence: float = 1.0,
+        lsap_divisor: Optional[float] = None,
     ):
         self.balance_gap = balance_gap   # retained for display only
         self.morans_i = morans_i
@@ -63,6 +64,10 @@ class MultiObjectiveScore:
         self.jfi_influence = jfi_influence
         self.lisa_penalty = lisa_penalty
         self.n_spatial = max(1, n_spatial)  # guard against zero-division
+        # Tight LSAP normalizer: n * lambda_max(spatial_W).
+        # Default is n_spatial (Perron-Frobenius: lambda_max <= 1 for row-stochastic W).
+        # Pass topology.lsap_divisor when a MapTopology is available.
+        self.lsap_divisor = float(lsap_divisor) if lsap_divisor is not None else float(self.n_spatial)
 
         # Weights sum to 1.0 for interpretability (ratios 5 : 5 : 3).
         if weights is None:
@@ -86,22 +91,25 @@ class MultiObjectiveScore:
           - 1 − jains_index ∈ [0, 1]   (JFI ∈ [1/H, 1])
           - lisa_norm        ∈ [0, 1]   (see derivation below)
 
-        LSAP normalization derivation:
+        LSAP normalization:
             local_I[i] = z_dev[i] * (W @ z_dev)[i] / m2  (variance-normalized).
-            For row-standardized W, max single local_I = n − 1 (one extreme
-            value surrounded by identical-deviation neighbours). At most n
-            positions contribute positively, so:
-                sum_positive_local_I  ≤  n × (n − 1)
-            Dividing by n × (n − 1) maps the LSAP to [0, 1].
+            For row-standardized W (row-stochastic), Perron-Frobenius guarantees
+            lambda_max(W) <= 1, so sum_i local_I_i = n * I_global <= n.
+            The tight divisor n * lambda_max is stored per-topology in
+            MapTopology.lsap_divisor and passed via the lsap_divisor kwarg (~= n).
+            Default (no topology): n_spatial (equivalent to lambda_max = 1).
+            Previous derivation ('max single local_I = n-1') was incorrect for
+            degree > 1; the Perron-Frobenius argument is the correct basis.
 
         Weights sum to 1.0 (ratios 5 : 5 : 3 ≈ 0.385 : 0.385 : 0.231).
         """
         n = self.n_spatial
-        lisa_divisor = max(1, n * (n - 1))
+        lisa_divisor = max(1.0, self.lsap_divisor)
         lisa_norm = self.lisa_penalty / lisa_divisor
         # One-sided hinge: penalize only I > E[I] = -1/(n-1).
-        # max(0, I - E[I]) = max(0, I + 1/(n-1))
-        morans_hinge = max(0.0, self.morans_i + 1.0 / (n - 1))
+        # Guard n-1 to avoid division by zero on degenerate n=1 cases,
+        # matching the robustness used in dominates() and diagnostics.
+        morans_hinge = max(0.0, self.morans_i + 1.0 / max(1, n - 1))
         return (
             self.weights['morans_i']     * morans_hinge +
             self.weights['jains_index']  * (1.0 - self.jains_index) +
@@ -188,6 +196,7 @@ def evaluate_map_multiobjective(
         jfi_influence  = fast_state.jfi_influence()
         lisa_penalty   = fast_state.lisa_penalty_swappable()
         n_spatial      = max(1, len(fast_state.topology.swappable_connected_s_pos))
+        lsap_divisor   = fast_state.topology.lsap_divisor
     else:
         # Slow path: per-dimension JFI unavailable; fall back to combined scalar.
         home_values = get_home_values(ti4_map, evaluator)
@@ -199,10 +208,12 @@ def evaluate_map_multiobjective(
         jfi_influence  = jains_index
         lisa_penalty   = 0.0
         n_spatial      = 1
+        lsap_divisor   = None  # defaults to n_spatial in MultiObjectiveScore
 
     return MultiObjectiveScore(
         balance_gap, morans_i, jains_index, lisa_penalty, n_spatial, weights,
         jfi_resources=jfi_resources, jfi_influence=jfi_influence,
+        lsap_divisor=lsap_divisor,
     )
 
 
