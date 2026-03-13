@@ -10,13 +10,15 @@
 
 Map optimization is framed as minimization of a weighted composite score over three objectives:
 
-$$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot |I| + w_3 \cdot \frac{\text{LSAP}}{n(n-1)}$$
+$$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot \max\!\left(0,\ I - \mathbb{E}[I]\right) + w_3 \cdot \frac{\text{LSAP}}{n(n-1)} \quad \text{where } \mathbb{E}[I] = -\frac{1}{n-1}$$
 
-where $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This formulation is theoretically inspired by the bottleneck intuition in multi-resource allocation (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension; we do not claim the formal DRF axioms, which apply to allocation mechanisms, not fixed topologies.
+The one-sided hinge penalizes only positive spatial autocorrelation above the null expectation; negative autocorrelation (spatial dispersion) incurs zero penalty, reflecting the design goal of preventing resource clustering rather than enforcing spatial randomness.
+
+In the above, $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This formulation is theoretically inspired by the bottleneck intuition in multi-resource allocation (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension; we do not claim the formal DRF axioms, which apply to allocation mechanisms, not fixed topologies.
 
 Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization** — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+); see §3.7. The nominal weights are $w_1 = 5/13$, $w_2 = 5/13$, $w_3 = 3/13$. **Weight-sensitivity analysis** (e.g. `analyze_benchmark.py --sensitivity`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations: equal weights, JFI-dominant, spatial-dominant, and LISA-dominant. When superiority holds across these configurations, the 5:5:3 choice is academically defensible as a nominal anchor. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
 
-All three terms are normalized to $[0, 1]$ before weighting: $(1 - J_{\min}) \in [0,1]$, $|I| \in [0,1]$ (theoretical bound for row-standardized $\mathbf{W}$), and $\text{LSAP}/[n(n-1)] \in [0,1]$. The divisor $n(n-1)$ is the theoretical maximum of the sum of positive variance-normalized local Moran's I values under row-standardized $\mathbf{W}$. Balance gap (max − min player value) is retained as a display attribute but is excluded from the composite score and all Pareto dominance calculations.
+All three terms are normalized to $[0, 1]$ before weighting: $(1 - J_{\min}) \in [0,1]$, $\max(0,\ I - \mathbb{E}[I]) \in \left[0,\ 1 + \tfrac{1}{n-1}\right] \approx [0, 1.028]$ for $n=37$ (effectively bounded at 1 for all observed map configurations), and $\text{LSAP}/[n(n-1)] \in [0,1]$. The divisor $n(n-1)$ is the theoretical maximum of the sum of positive variance-normalized local Moran's I values under row-standardized $\mathbf{W}$. Balance gap (max − min player value) is retained as a display attribute but is excluded from the composite score and all Pareto dominance calculations.
 
 ---
 

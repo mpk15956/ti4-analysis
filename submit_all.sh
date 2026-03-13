@@ -172,6 +172,7 @@ $PYTHON_BIN scripts/benchmark_engine.py \
     --budgets "$BUDGETS" \
     --players "$PLAYERS" \
     --workers "$WORKERS" \
+    --chains 3 \
     --sa-rate "$SA_RATE" \
     --sa-min-temp "$SA_MIN_TEMP" \
     --nsga-blob "$NSGA_BLOB" \

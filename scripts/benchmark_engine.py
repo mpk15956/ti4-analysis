@@ -273,9 +273,9 @@ def _run_seed(job):
             for f in front:
                 if f.dominates(score):
                     return front
-                if (f.jains_index == score.jains_index and
-                        f.morans_i == score.morans_i and
-                        f.lisa_penalty == score.lisa_penalty):
+                if (math.isclose(f.jains_index, score.jains_index, rel_tol=1e-6) and
+                        math.isclose(f.morans_i, score.morans_i, rel_tol=1e-6) and
+                        math.isclose(f.lisa_penalty, score.lisa_penalty, rel_tol=1e-6)):
                     return front
 
             # Remove any points that are dominated by the new score
