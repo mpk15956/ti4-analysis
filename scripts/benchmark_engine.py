@@ -74,6 +74,9 @@ def parse_args() -> argparse.Namespace:
                         "(e.g. 1000,5000,10000,25000).  When set, overrides "
                         "--hc-iter / --sa-iter / --nsga-gen for each budget level. "
                         "NSGA-II generations = budget // nsga-pop.")
+    p.add_argument("--chains",     type=int, default=1,
+                   help="Number of independent chains per (seed, algorithm, budget) for "
+                        "R-hat convergence diagnostic (default: 1). Use 3+ for rigor.")
     return p.parse_args()
 
 
@@ -82,7 +85,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
-    "seed", "algorithm", "budget",
+    "seed", "algorithm", "budget", "chain_id",
     "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
     "lisa_penalty", "composite_score", "elapsed_sec", "front_size",
     "evals_to_best",
@@ -97,11 +100,13 @@ def make_row(
     front_size: int,
     budget: int = 0,
     evals_to_best: int = -1,
+    chain_id: int = 0,
 ) -> Dict:
     return {
         "seed":           seed,
         "algorithm":      algorithm,
         "budget":         budget,
+        "chain_id":       chain_id,
         "balance_gap":    round(float(score.balance_gap),        4),
         "morans_i":       round(float(score.morans_i),           4),
         "jains_index":    round(float(score.jains_index),        4),
@@ -115,9 +120,10 @@ def make_row(
     }
 
 
-def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0) -> Dict:
+def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0,
+                   chain_id: int = 0) -> Dict:
     return {
-        "seed": seed, "algorithm": algorithm, "budget": budget,
+        "seed": seed, "algorithm": algorithm, "budget": budget, "chain_id": chain_id,
         "balance_gap": float("nan"), "morans_i": float("nan"),
         "jains_index": float("nan"), "jfi_resources": float("nan"),
         "jfi_influence": float("nan"), "lisa_penalty": float("nan"),
@@ -173,21 +179,63 @@ def _init_pool():
     _evaluator = create_joebrew_evaluator()
 
 
+def _sample_trajectory(history, n_samples: int = 11):
+    """Sample best-so-far composite at n_samples points (0%, 10%, ..., 100% of evals).
+    history: list of (eval_count, score). Returns list of (eval_count, trajectory_value).
+    """
+    if not history:
+        return []
+    max_evals = history[-1][0]
+    if max_evals <= 0:
+        return [(0, float(history[0][1].composite_score()))]
+    best_so_far = float("inf")
+    result = []
+    idx = 0
+    for pct in [i / (n_samples - 1) for i in range(n_samples)]:
+        target = int(pct * max_evals)
+        while idx < len(history) and history[idx][0] <= target:
+            best_so_far = min(best_so_far, float(history[idx][1].composite_score()))
+            idx += 1
+        if idx > 0:
+            result.append((target, best_so_far))
+        else:
+            result.append((target, float(history[0][1].composite_score())))
+    return result
+
+
 def _run_seed(job):
     """Run all algorithms for one (seed, budget) pair.
 
-    Takes a single tuple (for Pool.map compatibility) of primitives only.
-    Returns (ok: bool, rows: list[dict]).
+    When chains > 1, runs each algorithm chains times with distinct run seeds and
+    records trajectory per chain for R-hat. Takes a single tuple (for Pool.map).
+    Returns (ok: bool, rows: list[dict], archives, hv_archives, trajectories).
     """
     global _evaluator
     (seed, algos_list, budget, hc_iter, sa_iter, nsga_gen,
      players, sa_rate, sa_min_temp, nsga_pop, nsga_blob,
      nsga_mut, nsga_warm, ts_tenure, ts_k,
-     sga_blob, sga_mut, sga_warm) = job
+     sga_blob, sga_mut, sga_warm, chains) = job
 
     algos = set(algos_list)
+    n_chains = max(1, int(chains))
 
     import numpy as np
+
+    def _hv3d(scores, ref, rng, n_samples=5000):
+        """Monte Carlo HV for 3 objectives: (1-jfi, |mi|, lisa)."""
+        if not scores:
+            return 0.0
+        pts = np.array([
+            (1.0 - float(s.jains_index), abs(float(s.morans_i)), float(s.lisa_penalty))
+            for s in scores
+        ])
+        ideal = pts.min(axis=0)
+        box = float(np.prod(ref - ideal))
+        if box <= 0:
+            return 0.0
+        s = rng.uniform(ideal, ref, size=(n_samples, 3))
+        dominated = sum(1 for i in range(n_samples) if np.any(np.all(pts <= s[i], axis=1)))
+        return box * dominated / n_samples
 
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.hc_optimizer import hc_optimize
@@ -203,7 +251,8 @@ def _run_seed(job):
     evaluator = _evaluator
     rows = []
     _pareto_archives = []
-    _hv_archives = []  # (algorithm, seed, budget, rows[jains_index,morans_i,lisa_penalty])
+    _hv_archives = []  # (algorithm, seed, budget, chain_id, rows)
+    _trajectories = []  # (algorithm, seed, budget, chain_id, [(eval_count, value), ...])
     seed_start = time.time()
 
     try:
@@ -247,165 +296,203 @@ def _run_seed(job):
 
         # ── Random Search (baseline) ──────────────────────────────
         if "rs" in algos:
-            rs_map = initial_map.copy()
-            t0 = time.time()
-            topo = MapTopology.from_ti4_map(rs_map, evaluator)
-            fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
-            best_rs_score = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs_base)
-            rs_front = [best_rs_score]
-            rng_rs = np.random.default_rng(seed)
-            S = len(topo.swappable_indices)
-            rs_etb = 0
-            for ev in range(1, budget):
-                fs = fs_base.clone()
-                perm = rng_rs.permutation(S)
-                for i in range(S - 1, 0, -1):
-                    if perm[i] != i:
-                        fs.swap(perm[i], i)
-                candidate = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs)
-                rs_front = _update_front(rs_front, candidate)
-                if candidate.composite_score() < best_rs_score.composite_score():
-                    best_rs_score = candidate
-                    rs_etb = ev
-                del fs
-            rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
-                                 evals_to_best=rs_etb))
-            # Empirical Pareto front archive for RS
-            _hv_archives.append(("rs", seed, budget, _front_to_rows(rs_front)))
-            del rs_map, topo, fs_base
+            for chain_id in range(n_chains):
+                run_seed = seed * 1000 + chain_id
+                rs_map = initial_map.copy()
+                t0 = time.time()
+                topo = MapTopology.from_ti4_map(rs_map, evaluator)
+                fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
+                best_rs_score = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs_base)
+                rs_front = [best_rs_score]
+                rng_rs = np.random.default_rng(run_seed)
+                S = len(topo.swappable_indices)
+                rs_etb = 0
+                rs_history = [(0, best_rs_score)]
+                for ev in range(1, budget):
+                    fs = fs_base.clone()
+                    perm = rng_rs.permutation(S)
+                    for i in range(S - 1, 0, -1):
+                        if perm[i] != i:
+                            fs.swap(perm[i], i)
+                    candidate = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs)
+                    rs_front = _update_front(rs_front, candidate)
+                    if candidate.composite_score() < best_rs_score.composite_score():
+                        best_rs_score = candidate
+                        rs_etb = ev
+                    rs_history.append((ev, best_rs_score))
+                    del fs
+                rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
+                                     evals_to_best=rs_etb, chain_id=chain_id))
+                _hv_archives.append(("rs", seed, budget, chain_id, _front_to_rows(rs_front)))
+                if n_chains > 1:
+                    _trajectories.append(("rs", seed, budget, chain_id, _sample_trajectory(rs_history)))
+                del rs_map, topo, fs_base
 
         if "hc" in algos:
-            hc_map = initial_map.copy()
-            t0 = time.time()
-            hc_score, hc_history, hc_etb = hc_optimize(
-                hc_map, evaluator,
-                iterations=hc_iter,
-                random_seed=seed,
-                verbose=False,
-            )
-            rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
-                                 evals_to_best=hc_etb))
-            hc_front = []
-            for _, sc in hc_history:
-                hc_front = _update_front(hc_front, sc)
-            _hv_archives.append(("hc", seed, budget, _front_to_rows(hc_front)))
-            del hc_map
+            for chain_id in range(n_chains):
+                run_seed = seed * 1000 + chain_id
+                hc_map = initial_map.copy()
+                t0 = time.time()
+                hc_score, hc_history, hc_etb = hc_optimize(
+                    hc_map, evaluator,
+                    iterations=hc_iter,
+                    random_seed=run_seed,
+                    verbose=False,
+                )
+                rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
+                                     evals_to_best=hc_etb, chain_id=chain_id))
+                hc_front = []
+                for _, sc in hc_history:
+                    hc_front = _update_front(hc_front, sc)
+                _hv_archives.append(("hc", seed, budget, chain_id, _front_to_rows(hc_front)))
+                if n_chains > 1:
+                    _trajectories.append(("hc", seed, budget, chain_id, _sample_trajectory(hc_history)))
+                del hc_map
 
         if "sa" in algos:
-            sa_map = initial_map.copy()
-            t0 = time.time()
-            sa_score, sa_history, sa_etb = improve_balance_spatial(
-                sa_map, evaluator,
-                iterations=sa_iter,
-                initial_acceptance_rate=sa_rate,
-                min_temp=sa_min_temp,
-                random_seed=seed,
-                verbose=False,
-            )
-            rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
-                                 evals_to_best=sa_etb))
-            sa_front = []
-            for _, sc in sa_history:
-                sa_front = _update_front(sa_front, sc)
-            _hv_archives.append(("sa", seed, budget, _front_to_rows(sa_front)))
-            del sa_map
+            for chain_id in range(n_chains):
+                run_seed = seed * 1000 + chain_id
+                sa_map = initial_map.copy()
+                t0 = time.time()
+                sa_score, sa_history, sa_etb = improve_balance_spatial(
+                    sa_map, evaluator,
+                    iterations=sa_iter,
+                    initial_acceptance_rate=sa_rate,
+                    min_temp=sa_min_temp,
+                    random_seed=run_seed,
+                    verbose=False,
+                )
+                rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
+                                     evals_to_best=sa_etb, chain_id=chain_id))
+                sa_front = []
+                for _, sc in sa_history:
+                    sa_front = _update_front(sa_front, sc)
+                _hv_archives.append(("sa", seed, budget, chain_id, _front_to_rows(sa_front)))
+                if n_chains > 1:
+                    _trajectories.append(("sa", seed, budget, chain_id, _sample_trajectory(sa_history)))
+                del sa_map
 
         if "nsga2" in algos:
-            nsga_map = initial_map.copy()
-            t0 = time.time()
-            front = nsga2_optimize(
-                nsga_map, evaluator,
-                generations=nsga_gen,
-                population_size=nsga_pop,
-                blob_fraction=nsga_blob,
-                mutation_rate=nsga_mut,
-                warm_fraction=nsga_warm,
-                random_seed=seed,
-                verbose=False,
-            )
-            best_score = min(front, key=lambda x: x[1].composite_score())[1]
-            rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
-                                 len(front), budget))
+            ref_hv = np.array([1.2, 1.2, 1.2])
+            rng_hv = np.random.default_rng(42)
+            for chain_id in range(n_chains):
+                run_seed = seed * 1000 + chain_id
+                nsga_traj = []
 
-            # Save Pareto archive for Track B quality indicators
-            archive_rows = []
-            hv_rows = []
-            for _, s in front:
-                row_jfi = round(float(s.jains_index), 6)
-                row_mi = round(float(s.morans_i), 6)
-                row_lp = round(float(s.lisa_penalty), 6)
-                archive_rows.append({
-                    "jains_index": row_jfi,
-                    "morans_i": row_mi,
-                    "lisa_penalty": row_lp,
-                    "composite_score": round(float(s.composite_score()), 6),
-                })
-                hv_rows.append({
-                    "jains_index": row_jfi,
-                    "morans_i": row_mi,
-                    "lisa_penalty": row_lp,
-                })
-            _pareto_archives.append((seed, budget, archive_rows))
-            _hv_archives.append(("nsga2", seed, budget, hv_rows))
-            del nsga_map, front
+                def _nsga_cb(gen, rank0_scores):
+                    hv = _hv3d(rank0_scores, ref_hv, rng_hv)
+                    nsga_traj.append((gen * nsga_pop, hv))
+
+                nsga_map = initial_map.copy()
+                t0 = time.time()
+                front = nsga2_optimize(
+                    nsga_map, evaluator,
+                    generations=nsga_gen,
+                    population_size=nsga_pop,
+                    blob_fraction=nsga_blob,
+                    mutation_rate=nsga_mut,
+                    warm_fraction=nsga_warm,
+                    random_seed=run_seed,
+                    verbose=False,
+                    trajectory_callback=_nsga_cb,
+                )
+                best_score = min(front, key=lambda x: x[1].composite_score())[1]
+                rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
+                                     len(front), budget, chain_id=chain_id))
+
+                # Save Pareto archive for Track B quality indicators
+                archive_rows = []
+                hv_rows = []
+                for _, s in front:
+                    row_jfi = round(float(s.jains_index), 6)
+                    row_mi = round(float(s.morans_i), 6)
+                    row_lp = round(float(s.lisa_penalty), 6)
+                    archive_rows.append({
+                        "jains_index": row_jfi,
+                        "morans_i": row_mi,
+                        "lisa_penalty": row_lp,
+                        "composite_score": round(float(s.composite_score()), 6),
+                    })
+                    hv_rows.append({
+                        "jains_index": row_jfi,
+                        "morans_i": row_mi,
+                        "lisa_penalty": row_lp,
+                    })
+                if chain_id == 0:
+                    _pareto_archives.append((seed, budget, archive_rows))
+                _hv_archives.append(("nsga2", seed, budget, chain_id, hv_rows))
+                if n_chains > 1 and nsga_traj:
+                    _trajectories.append(("nsga2", seed, budget, chain_id, nsga_traj))
+                del nsga_map, front
 
         if "sga" in algos:
-            sga_map = initial_map.copy()
-            t0 = time.time()
-            sga_gen = max(1, budget // nsga_pop)
-            sga_score, sga_history = sga_optimize(
-                sga_map, evaluator,
-                generations=sga_gen,
-                population_size=nsga_pop,
-                blob_fraction=sga_blob,
-                mutation_rate=sga_mut,
-                warm_fraction=sga_warm,
-                random_seed=seed,
-                verbose=False,
-            )
-            sga_etb = 0
-            best_c = float('inf')
-            sga_front = []
-            for evals, sc in sga_history:
-                if sc.composite_score() < best_c:
-                    best_c = sc.composite_score()
-                    sga_etb = evals
-                sga_front = _update_front(sga_front, sc)
-            rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
-                                 evals_to_best=sga_etb))
-            _hv_archives.append(("sga", seed, budget, _front_to_rows(sga_front)))
-            del sga_map
+            for chain_id in range(n_chains):
+                run_seed = seed * 1000 + chain_id
+                sga_map = initial_map.copy()
+                t0 = time.time()
+                sga_gen = max(1, budget // nsga_pop)
+                sga_score, sga_history = sga_optimize(
+                    sga_map, evaluator,
+                    generations=sga_gen,
+                    population_size=nsga_pop,
+                    blob_fraction=sga_blob,
+                    mutation_rate=sga_mut,
+                    warm_fraction=sga_warm,
+                    random_seed=run_seed,
+                    verbose=False,
+                )
+                sga_etb = 0
+                best_c = float('inf')
+                sga_front = []
+                for evals, sc in sga_history:
+                    if sc.composite_score() < best_c:
+                        best_c = sc.composite_score()
+                        sga_etb = evals
+                    sga_front = _update_front(sga_front, sc)
+                rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
+                                     evals_to_best=sga_etb, chain_id=chain_id))
+                _hv_archives.append(("sga", seed, budget, chain_id, _front_to_rows(sga_front)))
+                if n_chains > 1:
+                    _trajectories.append(("sga", seed, budget, chain_id, _sample_trajectory(sga_history)))
+                del sga_map
 
         if "ts" in algos:
-            ts_map = initial_map.copy()
-            t0 = time.time()
-            ts_kw = {}
-            if ts_k is not None:
-                ts_kw["tabu_tenure_coefficient"] = ts_k
-            elif ts_tenure is not None:
-                ts_kw["tabu_tenure"] = ts_tenure
-            ts_score, ts_history, ts_etb, _ = improve_balance_tabu(
-                ts_map, evaluator,
-                max_evaluations=budget,
-                random_seed=seed,
-                verbose=False,
-                **ts_kw,
-            )
-            rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
-                                 evals_to_best=ts_etb))
-            ts_front = []
-            for _, sc in ts_history:
-                ts_front = _update_front(ts_front, sc)
-            _hv_archives.append(("ts", seed, budget, _front_to_rows(ts_front)))
-            del ts_map
+            for chain_id in range(n_chains):
+                run_seed = seed * 1000 + chain_id
+                ts_map = initial_map.copy()
+                t0 = time.time()
+                ts_kw = {}
+                if ts_k is not None:
+                    ts_kw["tabu_tenure_coefficient"] = ts_k
+                elif ts_tenure is not None:
+                    ts_kw["tabu_tenure"] = ts_tenure
+                ts_score, ts_history, ts_etb, _ = improve_balance_tabu(
+                    ts_map, evaluator,
+                    max_evaluations=budget,
+                    random_seed=run_seed,
+                    verbose=False,
+                    **ts_kw,
+                )
+                rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
+                                     evals_to_best=ts_etb, chain_id=chain_id))
+                ts_front = []
+                for _, sc in ts_history:
+                    ts_front = _update_front(ts_front, sc)
+                _hv_archives.append(("ts", seed, budget, chain_id, _front_to_rows(ts_front)))
+                if n_chains > 1:
+                    _trajectories.append(("ts", seed, budget, chain_id, _sample_trajectory(ts_history)))
+                del ts_map
 
-        return True, rows, _pareto_archives, _hv_archives
+        return True, rows, _pareto_archives, _hv_archives, _trajectories
 
     except Exception as exc:
         elapsed_err = time.time() - seed_start
         print(f"seed={seed:4d}  ERROR after {elapsed_err:.1f}s: {exc}", file=sys.stderr)
-        error_rows = [make_error_row(seed, algo, elapsed_err, budget) for algo in algos]
-        return False, error_rows, []
+        error_rows = []
+        for algo in algos:
+            for chain_id in range(n_chains):
+                error_rows.append(make_error_row(seed, algo, elapsed_err, budget, chain_id))
+        return False, error_rows, [], [], []
 
     finally:
         gc.collect()
@@ -454,6 +541,7 @@ def main() -> int:
         "nsga_evals": args.nsga_gen * args.nsga_pop,
         "ts_tenure":   args.ts_tenure,
         "ts_k":        args.ts_k,
+        "chains":      max(1, getattr(args, "chains", 1)),
         "started_at": datetime.now().isoformat(),
     }
     try:
@@ -473,6 +561,7 @@ def main() -> int:
     print(f"Seeds         : {args.seeds}  (base_seed={args.base_seed})")
     print(f"Algorithms    : {', '.join(sorted(algos))}")
     print(f"Budget levels : {budget_levels}")
+    print(f"Chains        : {max(1, getattr(args, 'chains', 1))}")
     print(f"Workers       : {args.workers}")
     print()
 
@@ -509,11 +598,12 @@ def main() -> int:
 
                 accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
+                n_chains = max(1, getattr(args, "chains", 1))
                 jobs = [
                     (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
                      args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
                      args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure, args.ts_k,
-                     args.sga_blob, args.sga_mut, args.sga_warm)
+                     args.sga_blob, args.sga_mut, args.sga_warm, n_chains)
                     for seed in range(args.base_seed, args.base_seed + args.seeds)
                 ]
 
@@ -526,8 +616,11 @@ def main() -> int:
                     pareto_archive_dir.mkdir(parents=True, exist_ok=True)
                 hv_archive_dir = run_dir / "unified_archives"
                 hv_archive_dir.mkdir(parents=True, exist_ok=True)
+                traj_dir = run_dir / "trajectories"
+                if n_chains > 1:
+                    traj_dir.mkdir(parents=True, exist_ok=True)
 
-                for ok, rows, archives, hv_archives in mapper(_run_seed, jobs):
+                for ok, rows, archives, hv_archives, trajectories in mapper(_run_seed, jobs):
                     for row in rows:
                         writer.writerow(row)
                     csv_file.flush()
@@ -541,15 +634,31 @@ def main() -> int:
                             for ar in a_rows:
                                 aw.writerow(ar)
 
-                    # Unified empirical fronts (all algorithms)
-                    for algo, h_seed, h_budget, h_rows in hv_archives:
-                        h_path = hv_archive_dir / f"unified_archive_algo{algo}_seed{h_seed}_b{h_budget}.csv"
+                    # Unified empirical fronts (all algorithms); one file per chain when chains > 1
+                    for entry in hv_archives:
+                        algo, h_seed, h_budget, h_chain_id, h_rows = entry
+                        chain_suffix = f"_chain{h_chain_id}" if n_chains > 1 else ""
+                        h_path = hv_archive_dir / f"unified_archive_algo{algo}_seed{h_seed}_b{h_budget}{chain_suffix}.csv"
                         with open(h_path, "w", newline="") as hf:
                             hw = csv.DictWriter(hf, fieldnames=["jains_index", "morans_i",
                                                                 "lisa_penalty"])
                             hw.writeheader()
                             for hr in h_rows:
                                 hw.writerow(hr)
+
+                    # Trajectories for R-hat: one file per (algo, seed, budget) with all chains
+                    traj_by_key = defaultdict(list)  # (algo, seed, budget) -> [(chain_id, eval_count, value), ...]
+                    for algo, t_seed, t_budget, t_chain_id, traj_list in trajectories:
+                        key = (algo, t_seed, t_budget)
+                        for ev, val in traj_list:
+                            traj_by_key[key].append((t_chain_id, ev, round(val, 6)))
+                    for (algo, t_seed, t_budget), points in traj_by_key.items():
+                        t_path = traj_dir / f"trajectories_algo{algo}_seed{t_seed}_b{t_budget}.csv"
+                        with open(t_path, "w", newline="") as tf:
+                            tw = csv.DictWriter(tf, fieldnames=["chain_id", "eval_count", "trajectory_value"])
+                            tw.writeheader()
+                            for chain_id, ev, val in sorted(points, key=lambda x: (x[0], x[1])):
+                                tw.writerow({"chain_id": chain_id, "eval_count": ev, "trajectory_value": val})
 
                     if ok:
                         seeds_done += 1

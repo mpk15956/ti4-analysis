@@ -14,12 +14,12 @@ Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic norm
 
 - **LISA**: `validate_lisa_proxy.py` implements conditional permutation LISA (Anselin 1995): for each location *i*, *z*[i] is fixed, other values are permuted, and local *I*_i is recomputed to build the null. p-value = (count_extreme + 1) / (n_perms + 1) with `--n-perms 9999` (default). The optimizer uses the continuous LSAP only as a heuristic; significance is claimed only from this script.
 - **Global Moran's I in the inner loop**: `FastMapState.morans_i()` returns only the scalar *I* (no z-score, no significance). It is used as a continuous objective to minimize |*I*|, not for inference.
+- **Global Moran's I significance**: `validate_lisa_proxy.py` now computes a **permutation-based p-value** for global Moran's I (exact permutation of the value vector over the fixed set of locations, no bootstrapping). The script writes `global_I` and `global_I_pvalue` per map and summarizes the fraction of maps with global I significant at α = 0.05. **Manuscript claims that optimization "optimizes spatial dispersion" should cite this permutation test** (and the validation script), not analytical variance or z-scores.
 
 ## Remaining gaps and recommendations
 
-1. **Global Moran's I (if reported as “significant”)**  
-   `spatial_metrics.morans_i()` returns (I, expected_I, variance_I) using Cliff–Ord analytical variance. At N=37 that variance is not reliable.  
-   - **Recommendation**: In the paper, do not claim global Moran's I is “significant” via analytical variance or a 1.96 threshold. Either report global *I* only as a descriptive measure, or add a permutation test for global *I* (permute the value vector, recompute *I*, obtain p-value) and base any significance claim on that.
+1. **Global Moran's I**  
+   Permutation-based significance for global *I* is now implemented in `validate_lisa_proxy.py`. Do not use `spatial_metrics.morans_i()` analytical variance or a 1.96 threshold for significance claims at N=37.
 
 2. **Getis–Ord Gi\***  
    The docstring in `spatial_metrics.py` states that |Gi*| > 1.96 implies significance; that threshold is asymptotic.  
@@ -40,5 +40,5 @@ Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic norm
 - So the limitation is: **any claim of statistical significance must use permutation-based (or similar) evaluation**, not analytical variance or z-scores at N=37. The codebase already does this for LISA via `validate_lisa_proxy.py`.
 - The only inherent limitation is **power**: with 37 tiles, very weak clustering may be undetectable. Transparency (reporting N, permutation, and effect sizes) is the appropriate response.
 
-**Bottom line:** Use permutation-based evaluation for all significance claims; treat LSAP as the optimization heuristic; do not use analytical variance or z-scores for significance at N=37; use FDR (Benjamini–Hochberg) for LISA multiple-testing correction; optionally add a permutation test for global Moran's I. Then the small-N issue is addressed rather than a permanent, unfixable flaw of TI4-style map optimization.
+**Bottom line:** Use permutation-based evaluation for all significance claims; treat LSAP as the optimization heuristic; do not use analytical variance or z-scores for significance at N=37; use FDR (Benjamini–Hochberg) for LISA multiple-testing correction; global Moran's I significance is reported via the permutation test in `validate_lisa_proxy.py`. Then the small-N issue is addressed rather than a permanent, unfixable flaw of TI4-style map optimization.
 

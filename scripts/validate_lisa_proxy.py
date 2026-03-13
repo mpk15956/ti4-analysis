@@ -63,6 +63,67 @@ def parse_args() -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
+# Global Moran's I permutation test (exact permutation, no bootstrap)
+# ---------------------------------------------------------------------------
+
+def global_morans_i_permutation_test(
+    z: np.ndarray,
+    W,
+    n_perms: int = 9999,
+    rng: np.random.Generator = None,
+) -> tuple:
+    """
+    Permutation-based p-value for global Moran's I.
+
+    Uses sampling without replacement (exact permutation of the value vector
+    over the fixed set of locations). Correct for the discrete combinatorial
+    "deck" nature of the board. Do not use bootstrapping.
+
+    Returns:
+        (I_obs, p_value_two_tailed)
+    """
+    if rng is None:
+        rng = np.random.default_rng(42)
+    n = len(z)
+    if n < 2:
+        return 0.0, 1.0
+    z_mean = z.mean()
+    x_dev = z - z_mean
+    denom = float((x_dev ** 2).sum())
+    if denom == 0:
+        return 0.0, 1.0
+    # W can be sparse
+    if hasattr(W, "dot"):
+        Wx = W.dot(x_dev)
+    else:
+        Wx = np.asarray(W @ x_dev).ravel()
+    W_sum = float(W.sum()) if hasattr(W, "sum") else float(np.asarray(W).sum())
+    if W_sum == 0:
+        return 0.0, 1.0
+    numerator = float(x_dev @ Wx)
+    I_obs = (n / W_sum) * (numerator / denom)
+
+    count_extreme = 0
+    for _ in range(n_perms):
+        perm_z = rng.permutation(z)  # sampling without replacement
+        p_mean = perm_z.mean()
+        p_dev = perm_z - p_mean
+        p_denom = float((p_dev ** 2).sum())
+        if p_denom == 0:
+            continue
+        if hasattr(W, "dot"):
+            p_Wx = W.dot(p_dev)
+        else:
+            p_Wx = np.asarray(W @ p_dev).ravel()
+        p_num = float(p_dev @ p_Wx)
+        I_perm = (n / W_sum) * (p_num / p_denom)
+        if abs(I_perm) >= abs(I_obs):
+            count_extreme += 1
+    p_value = (count_extreme + 1) / (n_perms + 1)
+    return float(I_obs), float(p_value)
+
+
+# ---------------------------------------------------------------------------
 # Permutation-tested LISA
 # ---------------------------------------------------------------------------
 
@@ -135,13 +196,31 @@ def conditional_permutation_lisa(
     n_sig_LH = int(np.sum(significant & (z_dev < 0) & (Wz > 0)))
 
     # FDR (Benjamini–Hochberg) correction for multiple testing
-    from scipy.stats import false_discovery_control
+    from scipy.stats import false_discovery_control, norm as norm_dist
     adjusted = false_discovery_control(p_values, method="bh")
     significant_fdr = adjusted < fdr_q
     n_sig_HH_fdr = int(np.sum(significant_fdr & (z_dev > 0) & (Wz > 0)))
     n_sig_LL_fdr = int(np.sum(significant_fdr & (z_dev < 0) & (Wz < 0)))
     n_sig_HL_fdr = int(np.sum(significant_fdr & (z_dev > 0) & (Wz < 0)))
     n_sig_LH_fdr = int(np.sum(significant_fdr & (z_dev < 0) & (Wz > 0)))
+
+    # Z_LISA from two-tailed p-value: |z| = norm.ppf(1 - p/2), sign from observed_local_I
+    p_clip = np.clip(p_values, 1e-10, 1.0 - 1e-10)
+    z_lisa = np.sign(observed_local_I) * norm_dist.ppf(1.0 - p_clip / 2.0)
+    max_z_lisa = float(np.max(np.abs(z_lisa))) if n > 0 else 0.0
+
+    # LISA cluster labels (HH, LL, HL, LH) by sign of z_dev and Wz
+    Wz_flat = np.asarray(Wz).ravel() if hasattr(Wz, "ravel") else np.asarray(Wz)
+    cluster_labels = []
+    for i in range(n):
+        if z_dev[i] > 0 and Wz_flat[i] > 0:
+            cluster_labels.append("HH")
+        elif z_dev[i] < 0 and Wz_flat[i] < 0:
+            cluster_labels.append("LL")
+        elif z_dev[i] > 0 and Wz_flat[i] < 0:
+            cluster_labels.append("HL")
+        else:
+            cluster_labels.append("LH")
 
     return {
         "n_sig_HH": n_sig_HH,
@@ -156,6 +235,8 @@ def conditional_permutation_lisa(
         "total_significant_fdr": int(significant_fdr.sum()),
         "n_positions": n,
         "lisa_proxy": float(observed_local_I[observed_local_I > 0].sum()),
+        "max_z_lisa": max_z_lisa,
+        "cluster_labels": cluster_labels,
     }
 
 
@@ -167,6 +248,7 @@ CSV_FIELDS = [
     "seed", "algorithm", "n_sig_HH", "n_sig_LL", "n_sig_HL", "n_sig_LH",
     "total_significant", "n_sig_HH_fdr", "n_sig_LL_fdr", "total_significant_fdr",
     "n_positions", "lisa_proxy", "composite_score", "elapsed_sec",
+    "global_I", "global_I_pvalue", "jains_index", "max_z_lisa",
 ]
 
 _evaluator = None
@@ -265,6 +347,7 @@ def _validate_seed(job):
             W = topo.spatial_W
 
             result = conditional_permutation_lisa(z, W, n_perms, alpha, fdr_q, rng)
+            global_I_obs, global_I_pvalue = global_morans_i_permutation_test(z, W, n_perms, rng)
             elapsed = time.time() - t0
 
             row = {
@@ -272,6 +355,9 @@ def _validate_seed(job):
                 "algorithm": algo,
                 "elapsed_sec": round(elapsed, 2),
                 "composite_score": round(float(score.composite_score()), 4),
+                "global_I": round(global_I_obs, 6),
+                "global_I_pvalue": round(global_I_pvalue, 6),
+                "jains_index": round(float(score.jains_index), 6),
                 **{k: result[k] for k in CSV_FIELDS if k in result},
             }
             rows.append(row)
@@ -357,6 +443,7 @@ def main() -> int:
         import pandas as pd
         from scipy import stats as scipy_stats
         df = pd.read_csv(csv_path)
+        validation_summary = {}
         print("\n── Summary (per-location p < alpha) ──")
         summary = df.groupby("algorithm").agg(
             mean_significant=("total_significant", "mean"),
@@ -374,14 +461,24 @@ def main() -> int:
             ).round(3)
             print(summary_fdr)
 
+        if "global_I_pvalue" in df.columns:
+            alpha_global = 0.05
+            n_sig_global = (df["global_I_pvalue"] < alpha_global).sum()
+            frac_sig = n_sig_global / len(df) if len(df) else 0.0
+            print(f"\n── Global Moran's I (permutation test) ──")
+            print(f"  Fraction of maps with global I significant at α={alpha_global}: {n_sig_global}/{len(df)} = {frac_sig:.3f}")
+            validation_summary["global_morans_i"] = {
+                "fraction_significant_alpha_0_05": round(frac_sig, 6),
+                "n_significant": int(n_sig_global),
+                "n_maps": int(len(df)),
+            }
+
         # ── Proxy validation: correlation between continuous proxy and cluster count
         proxy_vals = df["lisa_proxy"].values
         sig_counts = df["total_significant"].values
         valid_mask = np.isfinite(proxy_vals) & np.isfinite(sig_counts)
         proxy_valid = proxy_vals[valid_mask]
         sig_valid = sig_counts[valid_mask]
-
-        validation_summary = {}
 
         if len(proxy_valid) >= 3:
             spearman_r, spearman_p = scipy_stats.spearmanr(proxy_valid, sig_valid)
@@ -454,6 +551,29 @@ def main() -> int:
         with open(summary_json_path, "w") as jf:
             json.dump(validation_summary, jf, indent=2, default=str)
         print(f"  Validation JSON → {summary_json_path}")
+
+        # Pathological fairness: JFI > 0.99 and max(Z_LISA) > 3 (Spatial Blindness)
+        if "jains_index" in df.columns and "max_z_lisa" in df.columns:
+            pathological = df[(df["jains_index"] > 0.99) & (df["max_z_lisa"] > 3.0)]
+            if len(pathological) > 0:
+                print(f"\n── Pathological fairness (JFI > 0.99 and max Z_LISA > 3) ──")
+                print(f"  Found {len(pathological)} map(s). Example: seed={pathological.iloc[0]['seed']}, "
+                      f"algorithm={pathological.iloc[0]['algorithm']}, "
+                      f"JFI={pathological.iloc[0]['jains_index']:.4f}, max_z_lisa={pathological.iloc[0]['max_z_lisa']:.3f}")
+                example = {
+                    "seed": int(pathological.iloc[0]["seed"]),
+                    "algorithm": str(pathological.iloc[0]["algorithm"]),
+                    "jains_index": round(float(pathological.iloc[0]["jains_index"]), 6),
+                    "max_z_lisa": round(float(pathological.iloc[0]["max_z_lisa"]), 4),
+                    "reproduce": "python scripts/viz_pathological_fairness.py --seed {} --algorithm {}".format(
+                        int(pathological.iloc[0]["seed"]), pathological.iloc[0]["algorithm"]),
+                }
+                example_path = run_dir / "pathological_fairness_example.json"
+                with open(example_path, "w") as jf:
+                    json.dump(example, jf, indent=2)
+                print(f"  Example saved → {example_path}")
+            else:
+                print(f"\n── Pathological fairness: no maps with JFI > 0.99 and max Z_LISA > 3 (run more seeds to find one)")
 
     except ImportError:
         pass

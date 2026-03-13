@@ -319,6 +319,17 @@ class FastMapState:
         """
         return min(self.jfi_resources(), self.jfi_influence())
 
+    def structural_parity(self) -> float:
+        """
+        Structural Parity: standard deviation of distance-weighted resource
+        totals per player slice (per home). Lower = more parity.
+        σ_slice = std(home_resources).
+        """
+        hr = self.home_resources()
+        if len(hr) < 2:
+            return 0.0
+        return float(np.std(hr, ddof=1))
+
     def clone(self) -> 'FastMapState':
         """
         Return an independent copy sharing the same immutable topology.

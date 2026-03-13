@@ -34,7 +34,7 @@ Population seeding — inoculation strategy:
 import random
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Callable
 
 import numpy as np
 
@@ -373,6 +373,7 @@ def nsga2_optimize(
     warm_fraction: float = 0.10,
     random_seed: Optional[int] = None,
     verbose: bool = True,
+    trajectory_callback: Optional[Callable[[int, List[MultiObjectiveScore]], None]] = None,
 ) -> List[Tuple[TI4Map, MultiObjectiveScore]]:
     """
     NSGA-II with BFS-blob OX1 crossover for TI4 map Pareto optimisation.
@@ -474,6 +475,10 @@ def nsga2_optimize(
                 break
 
         population = new_population
+
+        if trajectory_callback is not None:
+            rank0_scores = [ind.score for ind in population if ind.rank == 0]
+            trajectory_callback(gen, rank0_scores)
 
         if verbose and (gen % 10 == 0 or gen == generations):
             rank0 = [ind for ind in population if ind.rank == 0]
