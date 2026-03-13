@@ -124,7 +124,7 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
 # ── Extract tuned hyperparameters (fail-loud, no silent defaults) ─────────────
 echo ""
 echo "--- Extracting tuned hyperparameters ---"
-read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT NSGA_WARM SGA_BLOB SGA_MUT SGA_WARM TS_TENURE < <(
+read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT NSGA_WARM SGA_BLOB SGA_MUT SGA_WARM TS_K < <(
 $PYTHON_BIN -c "
 import json, glob, sys
 
@@ -153,7 +153,7 @@ print(
     sg['blob_fraction'],
     sg['mutation_rate'],
     sg['warm_fraction'],
-    ts['tabu_tenure'],
+    ts['tabu_tenure_coefficient'],
 )
 "
 )
@@ -161,7 +161,7 @@ print(
 echo "  SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 echo "  NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"
 echo "  SGA:     blob=$SGA_BLOB  mut=$SGA_MUT  warm=$SGA_WARM"
-echo "  TS:      tenure=$TS_TENURE"
+echo "  TS:      k=$TS_K"
 
 # ── Phase 2: Saturation Study (1k → 500k evaluations, parallel) ──────────────
 echo ""
@@ -180,7 +180,7 @@ $PYTHON_BIN scripts/benchmark_engine.py \
     --sga-blob "$SGA_BLOB" \
     --sga-mut "$SGA_MUT" \
     --sga-warm "$SGA_WARM" \
-    --ts-tenure "$TS_TENURE" \
+    --ts-k "$TS_K" \
     --output-dir "$OUTPUT_DIR"
 
 # ── Locate results CSV ───────────────────────────────────────────────────────
@@ -256,5 +256,5 @@ echo "------------------------------------------------------------"
 echo "Tuned SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 echo "Tuned NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"
 echo "Tuned SGA:     blob=$SGA_BLOB  mut=$SGA_MUT  warm=$SGA_WARM"
-echo "Tuned TS:      tenure=$TS_TENURE"
+echo "Tuned TS:      k=$TS_K"
 echo "============================================================"
