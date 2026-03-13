@@ -101,7 +101,7 @@ def improve_balance_tabu(
 
     current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
     best_score = current_score
-    best_composite = best_score.composite_score()
+    best_lex = best_score.lex_key()
     best_etb = 0
     history: List[Tuple[int, MultiObjectiveScore]] = [(0, current_score)]
 
@@ -126,18 +126,18 @@ def improve_balance_tabu(
 
         best_move: Optional[Tuple[int, int]] = None
         best_move_score: Optional[MultiObjectiveScore] = None
-        best_move_composite = float('inf')
+        best_move_lex = (float('inf'), float('inf'))
 
         best_tabu_move: Optional[Tuple[int, int]] = None
         best_tabu_score: Optional[MultiObjectiveScore] = None
-        best_tabu_composite = float('inf')
+        best_tabu_lex = (float('inf'), float('inf'))
 
         for s_i, s_j in swap_pairs:
             fast_state.swap(s_i, s_j)
             candidate = evaluate_map_multiobjective(
                 ti4_map, evaluator, weights, fast_state
             )
-            c_composite = candidate.composite_score()
+            c_lex = candidate.lex_key()
             total_evals += 1
 
             is_tabu_pair = (s_i, s_j) in tabu_dict and tabu_dict[(s_i, s_j)] > iteration
@@ -153,13 +153,13 @@ def improve_balance_tabu(
             is_tabu = is_tabu_pair or is_tabu_attr
 
             if is_tabu:
-                if c_composite < best_tabu_composite:
-                    best_tabu_composite = c_composite
+                if c_lex < best_tabu_lex:
+                    best_tabu_lex = c_lex
                     best_tabu_move = (s_i, s_j)
                     best_tabu_score = candidate
             else:
-                if c_composite < best_move_composite:
-                    best_move_composite = c_composite
+                if c_lex < best_move_lex:
+                    best_move_lex = c_lex
                     best_move = (s_i, s_j)
                     best_move_score = candidate
 
@@ -169,7 +169,7 @@ def improve_balance_tabu(
         chosen_move = best_move
         chosen_score = best_move_score
 
-        if best_tabu_move is not None and best_tabu_composite < best_composite:
+        if best_tabu_move is not None and best_tabu_lex < best_lex:
             chosen_move = best_tabu_move
             chosen_score = best_tabu_score
 
@@ -194,9 +194,9 @@ def improve_balance_tabu(
             tabu_attrs[(s_i, swappable_spaces[s_i].system.id)] = iteration + tabu_tenure
             tabu_attrs[(s_j, swappable_spaces[s_j].system.id)] = iteration + tabu_tenure
 
-        if current_score.composite_score() < best_composite:
+        if current_score.lex_key() < best_lex:
             best_score = current_score
-            best_composite = best_score.composite_score()
+            best_lex = best_score.lex_key()
             best_etb = total_evals
             iterations_since_improvement = 0
             if verbose:
@@ -224,9 +224,9 @@ def improve_balance_tabu(
                 )
                 total_evals += 1
                 history.append((total_evals, current_score))
-                if current_score.composite_score() < best_composite:
+                if current_score.lex_key() < best_lex:
                     best_score = current_score
-                    best_composite = best_score.composite_score()
+                    best_lex = best_score.lex_key()
                     best_etb = total_evals
                     iterations_since_improvement = 0
             iterations_since_improvement = 0  # reset after diversification
@@ -241,17 +241,17 @@ def improve_balance_tabu(
 
         best_move = None
         best_move_score = None
-        best_move_composite = float('inf')
+        best_move_lex = (float('inf'), float('inf'))
         best_tabu_move = None
         best_tabu_score = None
-        best_tabu_composite = float('inf')
+        best_tabu_lex = (float('inf'), float('inf'))
 
         for s_i, s_j in partial_pairs:
             fast_state.swap(s_i, s_j)
             candidate = evaluate_map_multiobjective(
                 ti4_map, evaluator, weights, fast_state
             )
-            c_composite = candidate.composite_score()
+            c_lex = candidate.lex_key()
             total_evals += 1
 
             is_tabu_pair = (s_i, s_j) in tabu_dict and tabu_dict[(s_i, s_j)] > iteration
@@ -266,13 +266,13 @@ def improve_balance_tabu(
             is_tabu = is_tabu_pair or is_tabu_attr
 
             if is_tabu:
-                if c_composite < best_tabu_composite:
-                    best_tabu_composite = c_composite
+                if c_lex < best_tabu_lex:
+                    best_tabu_lex = c_lex
                     best_tabu_move = (s_i, s_j)
                     best_tabu_score = candidate
             else:
-                if c_composite < best_move_composite:
-                    best_move_composite = c_composite
+                if c_lex < best_move_lex:
+                    best_move_lex = c_lex
                     best_move = (s_i, s_j)
                     best_move_score = candidate
 
@@ -280,7 +280,7 @@ def improve_balance_tabu(
 
         chosen_move = best_move
         chosen_score = best_move_score
-        if best_tabu_move is not None and best_tabu_composite < best_composite:
+        if best_tabu_move is not None and best_tabu_lex < best_lex:
             chosen_move = best_tabu_move
             chosen_score = best_tabu_score
         if chosen_move is None and best_tabu_move is not None:
@@ -298,9 +298,9 @@ def improve_balance_tabu(
             if use_attribute_tabu:
                 tabu_attrs[(s_i, swappable_spaces[s_i].system.id)] = iteration + tabu_tenure
                 tabu_attrs[(s_j, swappable_spaces[s_j].system.id)] = iteration + tabu_tenure
-            if current_score.composite_score() < best_composite:
+            if current_score.lex_key() < best_lex:
                 best_score = current_score
-                best_composite = best_score.composite_score()
+                best_lex = best_score.lex_key()
                 best_etb = total_evals
             history.append((total_evals, current_score))
 

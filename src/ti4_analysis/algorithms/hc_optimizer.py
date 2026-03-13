@@ -81,11 +81,10 @@ def hc_optimize(
         new_score = evaluate_map_multiobjective(
             ti4_map, evaluator, weights, fast_state
         )
-        delta = new_score.composite_score() - current_score.composite_score()
 
-        if delta < 0:
+        if new_score.lex_key() < current_score.lex_key():
             current_score = new_score
-            if new_score.composite_score() < best_score.composite_score():
+            if new_score.lex_key() < best_score.lex_key():
                 best_score = new_score
                 best_eval = i
                 if verbose and i % 10 == 0:

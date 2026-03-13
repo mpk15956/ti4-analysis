@@ -37,9 +37,9 @@ from .nsga2_optimizer import (
 # ── Scalar tournament selection ───────────────────────────────────────────────
 
 def _scalar_tournament(pool: List[Individual], rng: random.Random) -> Individual:
-    """Binary tournament on composite_score (lower wins)."""
+    """Binary tournament on lex_key (lower wins)."""
     a, b = rng.sample(pool, 2)
-    return a if a.score.composite_score() <= b.score.composite_score() else b
+    return a if a.score.lex_key() <= b.score.lex_key() else b
 
 
 # ── Main SGA loop ─────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ def sga_optimize(
     )
 
     total_evals = population_size
-    best_ind = min(population, key=lambda ind: ind.score.composite_score())
+    best_ind = min(population, key=lambda ind: ind.score.lex_key())
     best_score = best_ind.score
     best_eval = total_evals
     history: List[Tuple[int, MultiObjectiveScore]] = [(total_evals, best_score)]
@@ -135,13 +135,13 @@ def sga_optimize(
 
         total_evals += len(offspring)
 
-        # (μ + λ) elitist truncation on scalar composite
+        # (μ + λ) elitist truncation on lex_key
         combined = population + offspring
-        combined.sort(key=lambda ind: ind.score.composite_score())
+        combined.sort(key=lambda ind: ind.score.lex_key())
         population = combined[:population_size]
 
         gen_best = population[0].score
-        if gen_best.composite_score() < best_score.composite_score():
+        if gen_best.lex_key() < best_score.lex_key():
             best_score = gen_best
             best_eval = total_evals
 

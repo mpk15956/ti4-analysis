@@ -4,7 +4,7 @@ Multi-objective spatial optimizer for TI4 maps.
 Implements Pareto optimization across three canonical objectives:
 
     1. 1 − jains_index  (minimize) — distributive equity (Jain's Fairness Index)
-    2. abs(morans_i)    (minimize) — global spatial clustering
+    2. max(0, morans_i − E[I])  (minimize) — global spatial clustering (one-sided hinge)
     3. lisa_penalty     (minimize) — Local Spatial Autocorrelation Penalty (LSAP)
 
 Decomposition: JFI captures the *magnitude* of resource disparity (distributive
@@ -40,7 +40,7 @@ class MultiObjectiveScore:
 
     A map's quality is evaluated across multiple dimensions:
     - Balance gap (lower is better) — display only
-    - Spatial clustering / Moran's I (lower absolute value is better)
+    - Spatial clustering / Moran's I (one-sided hinge: max(0, I − E[I]), lower is better)
     - Multi-Jain Fairness Index (higher is better): min(JFI_resources, JFI_influence)
     - LSAP / lisa_penalty (lower is better) — continuous proxy for LISA
     """
@@ -78,8 +78,11 @@ class MultiObjectiveScore:
         """
         Scalar objective for SA and HC (Weighted Sum Model). Lower is better.
 
-        All three terms are normalized to [0, 1] before weighting:
-          - abs(morans_i)   ∈ [0, 1]   (theoretical for row-standardized W)
+        All three terms are normalized before weighting:
+          - max(0, I − E[I]) ∈ [0, 1 + 1/(n-1)] ≈ [0, 1.028] for n=37
+            One-sided hinge: fires only when I exceeds the null expectation
+            E[I] = -1/(n-1). Negative autocorrelation (spatial dispersion)
+            passes at zero cost; only pathological positive clustering is penalized.
           - 1 − jains_index ∈ [0, 1]   (JFI ∈ [1/H, 1])
           - lisa_norm        ∈ [0, 1]   (see derivation below)
 
@@ -96,11 +99,38 @@ class MultiObjectiveScore:
         n = self.n_spatial
         lisa_divisor = max(1, n * (n - 1))
         lisa_norm = self.lisa_penalty / lisa_divisor
+        # One-sided hinge: penalize only I > E[I] = -1/(n-1).
+        # max(0, I - E[I]) = max(0, I + 1/(n-1))
+        morans_hinge = max(0.0, self.morans_i + 1.0 / (n - 1))
         return (
-            self.weights['morans_i']     * abs(self.morans_i) +
+            self.weights['morans_i']     * morans_hinge +
             self.weights['jains_index']  * (1.0 - self.jains_index) +
             self.weights['lisa_penalty'] * lisa_norm
         )
+
+    def lex_key(self) -> tuple:
+        """
+        Lexicographic fitness key for HC, TS, and SGA. Lower is better.
+
+        Primary: full composite loss (Moran's I hinge + fairness gap + LSAP).
+        Secondary: −J_max = −max(JFI_R, JFI_I).
+
+        On zero-delta plateaus where a swap improves the non-bottleneck JFI
+        dimension without changing J_min (so composite_score is identical),
+        the secondary key breaks the tie in favour of higher J_max, providing
+        directional momentum across the flat ridge.
+
+        SA does not use lex_key. SA's Metropolis criterion natively accepts
+        equal or worse moves via exp(−Δ/T) — when Δ=0, acceptance probability
+        is 1 at any temperature — so SA traverses zero-delta plateaus without
+        any modification.
+
+        Track A final-solution comparison uses composite_score() for all
+        algorithms; lex_key() affects only internal accept/reject decisions
+        of HC, TS, and SGA and does not alter the reported scalar metric.
+        """
+        j_max = max(self.jfi_resources, self.jfi_influence)
+        return (self.composite_score(), -j_max)
 
     def dominates(self, other: 'MultiObjectiveScore') -> bool:
         """
@@ -110,7 +140,8 @@ class MultiObjectiveScore:
         Returns True if self is better-or-equal on all and strictly better on at least one.
         """
         a_jfi = 1.0 - self.jains_index;    b_jfi = 1.0 - other.jains_index
-        a_mi  = abs(self.morans_i);         b_mi  = abs(other.morans_i)
+        a_mi  = max(0.0, self.morans_i  + 1.0 / max(1, self.n_spatial  - 1))
+        b_mi  = max(0.0, other.morans_i + 1.0 / max(1, other.n_spatial - 1))
         a_lp  = self.lisa_penalty;          b_lp  = other.lisa_penalty
 
         all_leq = (a_jfi <= b_jfi) and (a_mi <= b_mi) and (a_lp <= b_lp)
