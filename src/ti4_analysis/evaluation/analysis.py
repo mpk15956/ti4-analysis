@@ -26,7 +26,7 @@ class PairedTestResult:
     std_difference: float
     t_statistic: float
     p_value: float
-    cohens_d: float
+    cohens_d: float  # Cohen's d_z (paired): mean(diff) / std(diff)
     significant: bool
     sample_size: int
 
@@ -62,20 +62,21 @@ class CorrelationResult:
 
 def compute_cohens_d(before: np.ndarray, after: np.ndarray) -> float:
     """
-    Compute Cohen's d effect size for paired samples.
+    Compute Cohen's d_z effect size for paired samples.
 
-    Cohen's d is a standardized measure of effect size:
-    - |d| < 0.2: negligible
-    - |d| < 0.5: small
-    - |d| < 0.8: medium
-    - |d| >= 0.8: large
+    d_z is the standardized mean difference of the change: mean(after - before) / std(after - before).
+    It is the appropriate effect size for the paired t-test (Lakens, 2013). Magnitude bands:
+    - |d_z| < 0.2: negligible
+    - |d_z| < 0.5: small
+    - |d_z| < 0.8: medium
+    - |d_z| >= 0.8: large
 
     Args:
         before: Values before treatment
         after: Values after treatment
 
     Returns:
-        Cohen's d effect size
+        Cohen's d_z (paired) effect size
     """
     diff = after - before
     return np.mean(diff) / np.std(diff, ddof=1)

@@ -132,6 +132,14 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 
 ---
 
+## 3.8 Statistical methods and effect size
+
+**Effect size for paired comparisons.** For paired (before/after) or within-seed comparisons we report **Cohen's $d_z$**: the standardized mean difference of the *change*, $d_z = \bar{D} / s_D$, where $\bar{D}$ is the mean of the paired differences (after − before) and $s_D$ is their standard deviation (ddof=1). This is the appropriate effect size for the paired $t$-test and for repeated-measures designs (Lakens, 2013). Magnitude bands: $|d_z| < 0.2$ negligible; $0.2 \leq |d_z| < 0.5$ small; $0.5 \leq |d_z| < 0.8$ medium; $|d_z| \geq 0.8$ large.
+
+**Multi-objective fairness and tie-breaking.** The composite uses the **Multi-Jain bottleneck** $J_{\min} = \min(J_R, J_I)$, so the fairness term prioritizes the *most disadvantaged* resource dimension (Resources or Influence). When a move leaves the composite score unchanged (e.g. improves only the non-bottleneck dimension), **HC, TS, and SGA** use a **lexicographic tie-breaker**: they compare solutions by $(\text{composite}, -J_{\max})$ where $J_{\max} = \max(J_R, J_I)$, so the solution with higher $J_{\max}$ is preferred on the plateau. **SA** does not use this key; it accepts equal-cost moves with probability 1 and thus traverses the plateau without an explicit tie-breaker. The observed **JFI success** (good fairness on both dimensions) is therefore the result of a multi-objective search that (i) prioritizes the worst-off dimension in the scalar composite and (ii) still improves the secondary dimension on the plateau (via lex_key for HC/TS/SGA and equal-move acceptance for SA).
+
+---
+
 ## References (Methodology)
 
 Anselin, L. (1995). Local indicators of spatial association — LISA. *Geographical Analysis*, 27(2), 93–115.
@@ -149,5 +157,7 @@ Ishibuchi, H., Masuda, H., Tanigaki, Y., & Nojima, Y. (2015). Modified distance 
 Jain, R., Chiu, D. M., & Hawe, W. R. (1984). A quantitative measure of fairness and discrimination for resource allocation in shared computer systems. *DEC Research Report TR-301*.
 
 Kirkpatrick, S., Gelatt, C. D., & Vecchi, M. P. (1983). Optimization by simulated annealing. *Science*, 220(4598), 671–680.
+
+Lakens, D. (2013). Calculating and reporting effect sizes to facilitate cumulative science: a practical primer for $t$-tests and ANOVAs. *Frontiers in Psychology*, 4, 863. https://doi.org/10.3389/fpsyg.2013.00863
 
 Libório, M. P., de Abreu, J. F., Ekel, P., & Machado, A. (2022). Effect of sub-indicator weighting schemes on the spatial dependence of multidimensional phenomena. *Journal of Geographical Systems*, 25, 185–211.

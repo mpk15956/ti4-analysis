@@ -190,7 +190,7 @@ def _generate_executive_summary(
 
     if gap_decreased:
         summary.append(f"✓ **The optimizer works**: Balance gap decreased significantly "
-                      f"(Δ = {gap_result.mean_difference:.3f}, p < 0.001, d = {gap_result.cohens_d:.3f}).")
+                      f"(Δ = {gap_result.mean_difference:.3f}, p < 0.001, d_z = {gap_result.cohens_d:.3f}).")
     else:
         summary.append("✗ **Optimizer failed**: Balance gap did not decrease significantly.")
 
@@ -237,7 +237,7 @@ def _generate_paired_test_table(paired_results: Dict[str, PairedTestResult]) -> 
     """Generate markdown table for paired t-test results."""
     lines = []
 
-    lines.append("| Metric | Mean Before | Mean After | Δ | t-statistic | p-value | Cohen's d | Significant |")
+    lines.append("| Metric | Mean Before | Mean After | Δ | t-statistic | p-value | d_z (paired) | Significant |")
     lines.append("|--------|-------------|------------|---|-------------|---------|-----------|-------------|")
 
     for result in paired_results.values():
@@ -338,17 +338,29 @@ def _generate_interpretation_guide() -> str:
     guide.append("- **p ≥ 0.05**: Not significant")
     guide.append("")
 
-    guide.append("### Effect Size (Cohen's d)")
-    guide.append("- **|d| < 0.2**: Negligible effect")
-    guide.append("- **0.2 ≤ |d| < 0.5**: Small effect")
-    guide.append("- **0.5 ≤ |d| < 0.8**: Medium effect")
-    guide.append("- **|d| ≥ 0.8**: Large effect")
+    guide.append("### Effect Size (Cohen's d_z, paired)")
+    guide.append("Standardized mean difference of the paired change: d_z = mean(after − before) / std(after − before); "
+                 "appropriate for paired before/after comparisons.")
+    guide.append("- **|d_z| < 0.2**: Negligible effect")
+    guide.append("- **0.2 ≤ |d_z| < 0.5**: Small effect")
+    guide.append("- **0.5 ≤ |d_z| < 0.8**: Medium effect")
+    guide.append("- **|d_z| ≥ 0.8**: Large effect")
     guide.append("")
 
     guide.append("### Correlation Strength")
     guide.append("- **|r| < 0.3**: Weak correlation")
     guide.append("- **0.3 ≤ |r| < 0.7**: Moderate correlation")
     guide.append("- **|r| ≥ 0.7**: Strong correlation")
+    guide.append("")
+
+    guide.append("### Multi-objective fairness (JFI)")
+    guide.append("The composite uses the **bottleneck** min(JFI_resources, JFI_influence), so the fairness term "
+                 "prioritizes the most disadvantaged dimension. When the composite score is unchanged by a move, "
+                 "HC, TS, and SGA use a **lexicographic tie-breaker** preferring the solution with higher "
+                 "max(JFI_resources, JFI_influence), so the secondary dimension still improves on the plateau; "
+                 "SA accepts equal-cost moves and thus also traverses the plateau. Thus the JFI (fairness) results "
+                 "in this report reflect a search that prioritizes the worst-off dimension and improves the other "
+                 "dimension when the composite is flat.")
     guide.append("")
 
     guide.append("### Spatial Metrics")
