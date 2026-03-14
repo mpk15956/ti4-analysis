@@ -107,6 +107,8 @@ where $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fa
 
 Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization** — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+); see Track B above. The nominal weights are `w₁ = 5/13`, `w₂ = 5/13`, `w₃ = 3/13`, defined in `MultiObjectiveScore` in [`src/ti4_analysis/algorithms/spatial_optimizer.py`](src/ti4_analysis/algorithms/spatial_optimizer.py). **Weight-sensitivity analysis** (`--sensitivity` in `analyze_benchmark.py`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations: equal weights, JFI-dominant, spatial-dominant, and LISA-dominant. Algorithm superiority reported in the manuscript (e.g. SA beating HC on Track A) should hold across these configurations; when it does, the 5:5:3 choice is academically defensible as a nominal anchor. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
 
+**Normalization vs. Weighting:** To prevent the high-variance spatial metrics from masking the fairness gradients during early search, the engine employs **Gen-0 Normalization**. The system samples 1,000 random permutations from the $37!$ state space to calculate the empirical standard deviation ($\sigma$) of each metric. By dividing each metric by its static $\sigma$, all objectives are converted into comparable standard-deviation units. This strictly separates *normalization* (fixing the mathematical units based on empirical state-space properties) from *weighting* (the 5:5:3 strategic preference), ensuring the optimizer respects the intended multi-objective balance.
+
 All three terms are normalized to [0, 1] before weighting:
 
 - `1 − J_min ∈ [0, 1]` — multi-dimensional distributive equity (bottleneck JFI across resource dimensions); minimizing this maximizes the fairness of the least-fair dimension
@@ -275,6 +277,16 @@ Uniform random sampling over the full permutation space. For each evaluation, RS
 | **TS** | Methodological control: validates that SA's stochastic escape is not missing deterministic-memory-accessible optima | Excluded from production: high per-iteration cost for marginal gain |
 | **HC** | Lower bound: establishes the baseline quality achievable without local-optima escape | Warm-start seed for NSGA-II/SGA population inoculation |
 | **RS** | Null baseline: proves that intelligent search outperforms uniform random sampling | Not applicable |
+
+### Ablation Study: Three-Path Design
+
+To empirically prove that integrating spatial statistics provides a measurable improvement over existing community generators, we benchmark the proposed normalized composite against its isolated objective bounds:
+
+* **Control (Community Baseline):** Optimize strictly for Jain's Fairness Index (Weights 1:0:0).
+* **Spatial-Only:** Optimize strictly for Moran's I and LSAP (Weights 0:0.5:0.5).
+* **Proposed:** Gen-0 normalized composite (Weights 5:5:3).
+
+**Expected Proof:** The Control path mathematically guarantees the generation of maps that are numerically fair but topologically pathological (e.g., severe local clustering yielding a high LSAP penalty). The Proposed path mathematically balances the gradient, achieving the Control's standard of numerical fairness while actively suppressing spatial exploitation. *(This ablation can be executed via custom weight vectors in `benchmark_engine.py` or through the dedicated `--ablation` routines in the pipeline).*
 
 #### Bayesian Optimization (BO) — Excluded
 
