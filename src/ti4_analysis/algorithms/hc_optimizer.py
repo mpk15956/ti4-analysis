@@ -1,5 +1,5 @@
 """
-Deterministic hill-climber on the composite score (5:5:3 JFI + Moran's I + LSAP).
+Deterministic hill-climber on the composite score (1:1:1 JFI + Moran's I + LSAP).
 
 Used by the benchmark pipeline so that the "HC" baseline optimizes the same
 objective as SA, SGA, and TS. Accepts a swap if and only if it strictly
@@ -46,7 +46,7 @@ def hc_optimize(
         ti4_map: Map to optimize (modified in-place).
         evaluator: Balance evaluator.
         iterations: Maximum number of swap attempts.
-        weights: Objective weights (default 5:5:3).
+        weights: Objective weights (default 1:1:1).
         random_seed: Random seed for reproducibility.
         verbose: Print progress messages.
 

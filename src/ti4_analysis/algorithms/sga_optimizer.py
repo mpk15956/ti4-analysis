@@ -1,7 +1,7 @@
 """
 Single-Objective Genetic Algorithm (SGA) for TI4 map balance.
 
-Optimizes the same 5:5:3 composite scalar that SA hill-climbs, using the
+Optimizes the same 1:1:1 composite scalar that SA hill-climbs, using the
 same population-based operators (BFS-blob OX1 crossover, swap mutation,
 inoculation seeding) as NSGA-II. This isolates the comparison:
 
@@ -64,7 +64,7 @@ def sga_optimize(
     """
     Single-objective GA with BFS-blob OX1 crossover for TI4 map balance.
 
-    Optimises the weighted composite scalar (5:5:3 by default) that SA also
+    Optimises the weighted composite scalar (1:1:1 by default) that SA also
     optimises, using the same crossover and mutation operators as NSGA-II.
 
     Args:
@@ -78,7 +78,7 @@ def sga_optimize(
         random_seed    : Reproducibility seed (None = non-deterministic)
         verbose        : Print per-generation progress
         weights        : Objective weights dict (morans_i, jains_index,
-                         lisa_penalty). Defaults to 5:5:3 if None.
+                         lisa_penalty). Defaults to 1:1:1 if None.
 
     Returns:
         Tuple of (best_score, history) where history is a list of

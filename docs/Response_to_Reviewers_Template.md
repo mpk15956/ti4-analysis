@@ -42,11 +42,11 @@ Pre-written rebuttal paragraphs for common critiques. Fill in specific numbers, 
 
 ---
 
-## 5. Nominal weight choice (5:5:3)
+## 5. Nominal weight choice (1:1:1)
 
-**Reviewer concern:** Why 5:5:3? Isn't the choice of weights arbitrary?
+**Reviewer concern:** Why 1:1:1? Isn't the choice of weights arbitrary?
 
-**Response:** Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use 5:5:3 as a **nominal scalarization** — a fixed target for single-objective methods. Its defensibility rests on **weight-sensitivity analysis**: we run the same benchmark under alternative weight configurations (equal weights, JFI-dominant, spatial-dominant, LISA-dominant) and verify that algorithm rankings (e.g. SA vs HC) remain robust. When superiority holds across these configurations, the 5:5:3 choice serves as an academically defensible nominal anchor. Primary evaluation for NSGA-II uses weight-independent Pareto indicators (HV, IGD+, Spacing) in Track B. See Methodology §3.1 and `analyze_benchmark.py --sensitivity`.
+**Response:** Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use **equal weights 1:1:1** as a **nominal scalarization** — a fixed target for single-objective methods. This is self-justifying and consistent with the four-condition ablation (full composite = 1:1:1). Defensibility rests on **weight-sensitivity analysis**: we run the same benchmark under alternative weight configurations around 1:1:1 and verify that algorithm rankings (e.g. SA vs HC) remain robust. Primary evaluation for the main experiment is condition comparison (spatial profile, JFI parity); weight-independent Pareto indicators (HV, IGD+, Spacing) in Track B support methods justification. See Design_Rationale.md and Methodology §3.1.
 
 ---
 

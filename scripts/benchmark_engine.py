@@ -803,6 +803,8 @@ def main() -> int:
     print(f"Run directory : {run_dir}")
     print(f"Seeds         : {args.seeds}  (base_seed={args.base_seed})")
     print(f"Algorithms    : {', '.join(sorted(algos))}")
+    if conditions_list:
+        print(f"Conditions    : {', '.join(conditions_list)}  ({len(conditions_list)} rows per seed)")
     print(f"Budget levels : {budget_levels}")
     print(f"Chains        : {max(1, getattr(args, 'chains', 1))}")
     print(f"Workers       : {args.workers}")

@@ -311,7 +311,7 @@ def compute_gen0_sigma(
         ti4_map_template: Template map; copies are randomized for each sample.
         n_samples: Number of random permutations to sample (default 1000).
         random_seed: Optional seed for reproducibility.
-        weights: Objective weights (for score construction; default 5:5:3).
+        weights: Objective weights (for score construction; default 1:1:1).
         use_local_variance_lisa: If True (default), LSAP uses sqrt(k_i) correction (match benchmark).
         n_swaps_randomize: Random 2-swaps per copy to randomize (default 80).
 

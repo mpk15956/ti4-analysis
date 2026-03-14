@@ -207,16 +207,13 @@ class TestOx1Crossover:
 
 def _make_individual(gap, morans, lisa, jains=0.9):
     """Construct a minimal Individual with the given objective values."""
-    score = object.__new__(type('MockScore', (), {
-        'balance_gap': gap,
-        'morans_i': morans,
-        'lisa_penalty': lisa,
-        'jains_index': jains,
-    }))
-    score.balance_gap = gap
-    score.morans_i = morans
-    score.lisa_penalty = lisa
-    score.jains_index = jains
+    score = MultiObjectiveScore(
+        balance_gap=gap,
+        morans_i=morans,
+        lisa_penalty=lisa,
+        jains_index=jains,
+        n_spatial=37,
+    )
     ind = object.__new__(Individual)
     ind.score = score
     ind.map = None
