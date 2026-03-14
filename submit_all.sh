@@ -110,11 +110,11 @@ print(sa['initial_acceptance_rate'], sa['min_temp'])
 )
 echo "  SA: rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 
-# ── Phase 1: Main experiment (four-condition ablation, SA, tuned parameters) ──
+# ── Phase 1: Main experiment (five-condition ablation, SA, tuned parameters) ──
 echo ""
-echo "--- Phase 1: Main experiment — four-condition ablation (${SEEDS} seeds, SA, tuned params) ---"
+echo "--- Phase 1: Main experiment — five-condition ablation (${SEEDS} seeds, SA, tuned params) ---"
 $PYTHON_BIN scripts/benchmark_engine.py \
-    --conditions jfi_only,moran_only,lsap_only,full_composite \
+    --conditions jfi_only,moran_only,lsap_only,jfi_moran,full_composite \
     --seeds "$SEEDS" \
     --budgets "$BUDGETS" \
     --players "$PLAYERS" \
@@ -122,6 +122,7 @@ $PYTHON_BIN scripts/benchmark_engine.py \
     --chains 3 \
     --sa-rate "$SA_RATE" \
     --sa-min-temp "$SA_MIN_TEMP" \
+    --corrected-landscape \
     --output-dir "$OUTPUT_DIR"
 
 PRIMARY_RESULTS_CSV=$(find "$OUTPUT_DIR" -name "results.csv" -path "*/benchmark_*" | sort | tail -1)

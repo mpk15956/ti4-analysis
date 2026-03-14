@@ -3,8 +3,8 @@
 Monte Carlo benchmark for TI4 map optimization.
 
 Supports two modes:
-  (1) Main experiment: four-condition ablation (JFI-only, Moran-only, LSAP-only,
-      full composite) via --conditions. Use --algorithms sa (default when
+  (1) Main experiment: five-condition ablation (JFI-only, Moran-only, LSAP-only,
+      JFI+Moran, full composite) via --conditions. Use --algorithms sa (default when
       --conditions is set). Output includes a condition column for analysis.
   (2) Methods justification: multi-algorithm, multi-budget runs (e.g. rs, hc, sa,
       sga, nsga2, ts) when --conditions is not set.
@@ -88,7 +88,7 @@ def parse_args() -> argparse.Namespace:
                         "R-hat convergence diagnostic (default: 1). Use 3+ for rigor.")
     p.add_argument("--conditions", type=str, default=None,
                    help="Comma-separated condition names for main experiment: "
-                        "jfi_only,moran_only,lsap_only,full_composite. When set, "
+                        "jfi_only,moran_only,lsap_only,jfi_moran,full_composite. When set, "
                         "algorithms default to sa and --weight-grid-step must be 0.")
     p.add_argument("--weight-grid-step", type=float, default=0.0,
                    help="Simplex step size for SO algorithm weight grid (default: 0 = "
@@ -100,14 +100,15 @@ def parse_args() -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
-# Condition weights (main experiment: four-condition ablation)
+# Condition weights (main experiment: five-condition ablation)
 # ---------------------------------------------------------------------------
 
 CONDITIONS = {
-    "jfi_only":       (0.0, 1.0, 0.0),   # (morans_i, jains_index, lisa_penalty)
-    "moran_only":     (1.0, 0.0, 0.0),
-    "lsap_only":      (0.0, 0.0, 1.0),
-    "full_composite": (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+    "jfi_only":       (0.0, 1.0, 0.0),                      # C0: (morans_i, jains_index, lisa_penalty)
+    "moran_only":     (1.0, 0.0, 0.0),                      # C1
+    "lsap_only":      (0.0, 0.0, 1.0),                      # C2
+    "jfi_moran":      (0.5, 0.5, 0.0),                      # C3: JFI + global Moran, no LSAP (parsimony test)
+    "full_composite": (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),  # C4
 }
 
 

@@ -144,13 +144,19 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 
 ## 3.8 Ablation Study: Objective-Weight Paths
 
-To empirically validate the necessity of the multi-objective formulation against the existing community standard, the methodology employs a three-path ablation design that isolates the extreme bounds of the fitness landscape:
+To empirically validate the necessity of the multi-objective formulation and satisfy the parsimony requirement (Anselin, 1995), the methodology employs a five-condition ablation design:
 
-1. **Control (Community Baseline):** Optimize strictly for numerical fairness. Uses a weight vector of 1:0:0 to maximize Jain's Fairness Index, entirely blinding the optimizer to spatial metrics.
-2. **Spatial-Only:** Optimize strictly for topological dispersion. Uses a weight vector of 0:0.5:0.5 to minimize global Moran's I and the LSAP, ignoring numerical resource parity.
-3. **Proposed Multi-Objective:** Optimize the Gen-0 normalized composite under the nominal weights (1:1:1).
+| Condition | Weights ($w_1$:$w_2$:$w_3$) | Purpose |
+|-----------|------------------------------|---------|
+| **C0** (`jfi_only`) | 1:0:0 (JFI only) | Baseline — current state of the art |
+| **C1** (`moran_only`) | 0:1:0 (Moran's I only) | Does global clustering alone change maps? |
+| **C2** (`lsap_only`) | 0:0:1 (LSAP only) | Does local clustering alone change maps? |
+| **C3** (`jfi_moran`) | 1:1:0 (JFI + Moran) | Is global Moran sufficient without LSAP? (parsimony test) |
+| **C4** (`full_composite`) | 1:1:1 (full composite) | Does LSAP add constraint beyond C3? |
 
-**Expected Proof:** The ablation quantitatively demonstrates the structural deficiency of scalar fairness metrics. The Control (JFI-only) path is expected to produce maps that are numerically perfectly fair but topologically pathological—for instance, aggregating all high-value resources in a single player's slice offset by high-influence resources in another, thereby maximizing the LSAP penalty. The Proposed multi-objective path balances the gradient, achieving parity with the Control's numerical JFI while simultaneously suppressing spatial clustering (minimizing LSAP). This confirms that spatial optimization is not redundant, and that the community baseline is mathematically blind to spatial exploitation.
+C3 is the critical parsimony test: if global Moran's I is sufficient to constrain topological exploitation while maintaining JFI parity, C4 is theoretically redundant. All conditions use Gen-0 static normalization (`--corrected-landscape`) so that objective scales are topology-agnostic.
+
+**Expected Proof:** The ablation quantitatively demonstrates the structural deficiency of scalar fairness metrics. C0 (JFI-only) is expected to produce maps that are numerically fair but topologically pathological — aggregating high-value resources in spatially contiguous clusters, maximizing the LSAP penalty. C3 (JFI + Moran) is predicted to pass JFI parity but fail to suppress localized clustering, demonstrating that global Moran's I is blind to local non-stationarity in this topology. C4 (full composite) suppresses both Moran's I and LSAP while maintaining JFI parity, confirming that LSAP provides constraint that global autocorrelation alone cannot achieve.
 
 ---
 
