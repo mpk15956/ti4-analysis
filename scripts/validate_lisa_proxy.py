@@ -332,7 +332,7 @@ def _validate_seed(job):
                 fs = FastMapState.from_ti4_map(topo, best_map, evaluator)
             elif algo == "ts":
                 m = initial_map.copy()
-                _, _, _ = improve_balance_tabu(
+                _, _, _, _ = improve_balance_tabu(
                     m, evaluator, max_evaluations=ts_iter,
                     random_seed=seed, verbose=False,
                 )
