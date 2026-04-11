@@ -591,7 +591,7 @@ plt.show()
 fig, ax = plt.subplots(figsize=(10, 8))
 plot_delta_heatmap(
     m_c0, m_c4, evaluator, ax=ax, 
-    title="The Transformation: Spatial Delta (C4 Composite - C0 Baseline)", cmap="RdBu"
+    title="Spatial Delta (C4 Composite - C0 Baseline)", cmap="RdBu"
 )
 overlay_wormhole_network(m_c4, ax)
 plt.show()
