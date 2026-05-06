@@ -399,7 +399,7 @@ def main() -> int:
     except ImportError:
         print(
             "ERROR: Optuna is not installed.\n"
-            "Install it with:  pip install optuna\n"
+            "Run this script from the pixi 'tuning' environment:  pixi run -e tuning python scripts/optimize_hyperparameters.py ...\n"
             "Then re-run this script.",
             file=sys.stderr,
         )

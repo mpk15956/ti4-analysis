@@ -1,0 +1,46 @@
+# Build artifacts and caches
+.pixi/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Generated benchmark / optuna runs (regenerate inside the container)
+output/
+
+# Local build scratch (apptainer extraction, OCI tarball)
+.build-tmp/
+
+# VCS, IDE, agent state
+.git/
+.gitattributes
+.vscode/
+.idea/
+.claude/
+.github/
+
+# Environments other than pixi
+.env
+.venv
+venv/
+env/
+ENV/
+
+# Local artifacts that shouldn't enter the image
+*.sif
+Containerfile
+.containerignore
+
+# OS
+.DS_Store
+Thumbs.db

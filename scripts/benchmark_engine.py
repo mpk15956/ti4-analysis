@@ -47,6 +47,11 @@ from typing import Dict, List
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Monte Carlo benchmark: main experiment (--conditions) or methods justification (--algorithms)")
     p.add_argument("--seeds",       type=int, default=100,    help="Number of random seeds")
+    p.add_argument("--quick",       action="store_true",
+                   help="Smoke-test mode: 1 seed, TS only, 1000-eval budget, single worker. "
+                        "Forces --seeds=1 --algorithms=ts --budgets=1000 --workers=1, "
+                        "overriding any explicit values for those flags. "
+                        "Validates the pipeline runs end-to-end in ~5-15 min on a laptop.")
     p.add_argument("--hc-iter",     type=int, default=1000,   help="HC iterations per seed")
     p.add_argument("--sa-iter",     type=int, default=1000,   help="SA iterations per seed")
     p.add_argument("--nsga-gen",    type=int, default=50,     help="NSGA-II generations")
@@ -96,7 +101,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--corrected-landscape", action="store_true",
                    help="Enable structural corrections: Gen-0 static normalization, "
                         "smooth objectives, sqrt(k_i) LSAP, TS tenure 0.05*C(S,2).")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.quick:
+        args.seeds = 1
+        args.algorithms = "ts"
+        args.budgets = "1000"
+        args.workers = 1
+    return args
 
 
 # ---------------------------------------------------------------------------

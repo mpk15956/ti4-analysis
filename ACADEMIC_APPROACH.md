@@ -61,7 +61,7 @@ Algorithm-comparison RQs (which optimizer to use) support methods justification 
 
 ```bash
 cd ti4-analysis
-pip install -r requirements.txt
+pixi install
 ```
 
 ### 2. Run Academic Benchmark

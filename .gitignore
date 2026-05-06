@@ -67,6 +67,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.pixi/
 
 # IDEs / editor local
 .vscode/
@@ -83,6 +84,11 @@ dmypy.json
 
 # Generated benchmark / optuna output runs
 output/
+
+# Container build artifacts
+*.sif
+*.oci.tar
+.build-tmp/
 
 # Results and data
 results/*.png

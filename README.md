@@ -388,31 +388,121 @@ ti4-analysis/
 
 ## Installation
 
-**Requirements:** Python 3.9 or higher.
+The project uses [pixi](https://pixi.sh) to manage its conda + PyPI environment. Install pixi once (`curl -fsSL https://pixi.sh/install.sh | sh`), then:
 
 ```bash
 # Clone and enter the repository
 cd ti4-analysis
 
-# Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate        # macOS / Linux
-# venv\Scripts\activate         # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install the package in development mode
-pip install -e .
+# Solve and install the default environment (all runtime + dev tools)
+pixi install
 
 # Verify
-python -c "import ti4_analysis; print('Installation successful')"
+pixi run python -c "import ti4_analysis; print('Installation successful')"
 ```
 
-`optuna` is an optional dependency, required only for hyperparameter tuning:
+The package itself is installed as an editable PyPI dependency, so source edits are picked up without reinstalling.
+
+To run any command inside the environment, prefix it with `pixi run` (e.g. `pixi run pytest`), or drop into a subshell with `pixi shell`.
+
+Pre-defined tasks:
 
 ```bash
-pip install optuna
+pixi run test        # pytest
+pixi run lint        # ruff check
+pixi run format      # black
+pixi run typecheck   # mypy
+```
+
+`optuna` is required only for hyperparameter tuning and lives in a separate environment:
+
+```bash
+pixi run -e tuning python scripts/tune_ts.py ...
+```
+
+---
+
+## Reproducible Containers
+
+A single [`Containerfile`](Containerfile) at the repo root is the source of truth for two runtime artifacts: an OCI image (Podman/Docker) and an Apptainer `.sif`. Three audiences interact with this repo, and each has its own single-command path. They are independent entry points, not a sequence.
+
+| Audience          | Goal                                       | Command                                                                 | Pixi required? |
+|-------------------|--------------------------------------------|-------------------------------------------------------------------------|----------------|
+| Developer         | Edit code, run tests, iterate              | `pixi install` (then `pixi run test`, etc.)                             | Yes            |
+| Release engineer  | Produce shipped artifacts (OCI + `.sif`)   | `pixi run -e container release`                                         | Yes            |
+| Reproducer        | Run the paper's pipeline at chosen depth   | Three tiers: smoke / partial / full (see "Reproducing the paper")       | No             |
+
+`pixi run` auto-installs the requested environment on first invocation, so the release engineer's command works on a fresh clone without a separate `pixi install` step.
+
+### Building release artifacts
+
+```bash
+pixi run -e container release
+```
+
+Chains two tasks: `oci-build` (`podman build -t ti4-analysis:latest .`) and `sif-build` (`podman save | apptainer build` via an OCI archive in `/tmp`, no daemon socket round-trip). Result: `ti4-analysis:latest` in podman storage, `ti4-analysis.sif` in the repo root. Both are gitignored. Individual stages are also runnable: `pixi run -e container oci-build` and `pixi run -e container sif-build`.
+
+The `container` environment bundles `apptainer` from conda-forge (unprivileged build, suitable for any modern Linux kernel with user-namespaces and FUSE). `podman` is expected on PATH from the host.
+
+### Reproducing the paper
+
+Three tiers, picked by appetite for runtime and hardware. All three exercise the same code; only the invocation and scale differ. The smoke and partial tiers run inside the container without HPC; the full tier is a SLURM job script.
+
+#### Smoke test (laptop, ~5-15 min)
+
+Confirms the pipeline runs end-to-end on the smallest possible workload (one algorithm, one seed, smallest budget). The reviewer who wants to "see that the code works" stops here.
+
+```bash
+# OCI (the :Z is required on SELinux-enforcing hosts like Fedora/RHEL/Bazzite,
+# silent no-op elsewhere; relabels the bind mount to container_file_t)
+podman run --rm \
+    -v "$PWD/output:/app/output:Z" \
+    ghcr.io/<user>/ti4-analysis:<tag> \
+    python scripts/benchmark_engine.py --quick --output-dir /app/output/smoke/
+
+# .sif (HPC, Zenodo download, or local)
+apptainer run --bind "$PWD/output:/app/output" \
+    ti4-analysis.sif \
+    python scripts/benchmark_engine.py --quick --output-dir /app/output/smoke/
+```
+
+The `--quick` flag forces `--seeds 1 --algorithms ts --budgets 1000 --workers 1`, overriding any explicit values. See `python scripts/benchmark_engine.py --help` for the full CLI.
+
+#### Partial reproduction (workstation, hours)
+
+Reproduces a representative subset of the result tables: all six algorithms, ten seeds, two budgets. Scales with CPU count via `--workers`. The reviewer who wants to "spot-check the central claim" stops here.
+
+```bash
+apptainer run --bind "$PWD/output:/app/output" \
+    ti4-analysis.sif \
+    python scripts/benchmark_engine.py \
+        --seeds 10 \
+        --algorithms hc,sa,sga,nsga2,ts,rs \
+        --budgets 1000,5000 \
+        --workers 4 \
+        --output-dir /app/output/partial/
+```
+
+#### Full reproduction (HPC with SLURM, days)
+
+Reproduces every number in the paper: 100 seeds × 8 budgets × 6 algorithms × all phases. Driven by [`submit_all.sh`](submit_all.sh), which is an `sbatch` script (120-hour walltime, 16 CPUs, 64GB RAM).
+
+```bash
+# On a SLURM head node:
+sbatch submit_all.sh
+```
+
+Note: `submit_all.sh` currently activates a miniforge env directly rather than running through the `.sif`. To use the container path on SLURM, replace `$PYTHON_BIN` invocations with `apptainer exec ti4-analysis.sif python ...`. The CPU-bound metaheuristic workloads do not require GPU and run unchanged inside the container.
+
+### Publishing artifacts
+
+```bash
+# OCI to GHCR (for laptop reproducers)
+podman tag ti4-analysis:latest ghcr.io/<user>/ti4-analysis:<tag>
+podman push ghcr.io/<user>/ti4-analysis:<tag>
+
+# .sif to Zenodo (for archival DOI)
+# Upload ti4-analysis.sif via the Zenodo web UI or zenodo-uploader.
 ```
 
 ---
