@@ -1,0 +1,33 @@
+WEIGHT SENSITIVITY: RANK STABILITY AND KENDALL'S TAU
+============================================================
+
+Rank stability (significant wins at p<0.05):
+  hc vs nsga2: hc 0/5, nsga2 0/5 (p<0.05)
+  hc vs sa: hc 0/5, sa 0/5 (p<0.05)
+  hc vs sga: hc 0/5, sga 0/5 (p<0.05)
+  hc vs ts: hc 0/5, ts 0/5 (p<0.05)
+  nsga2 vs ts: nsga2 0/5, ts 0/5 (p<0.05)
+  rs vs hc: rs 0/5, hc 0/5 (p<0.05)
+  rs vs nsga2: rs 0/5, nsga2 0/5 (p<0.05)
+  rs vs sa: rs 0/5, sa 0/5 (p<0.05)
+  rs vs sga: rs 0/5, sga 0/5 (p<0.05)
+  rs vs ts: rs 0/5, ts 0/5 (p<0.05)
+  sa vs nsga2: sa 0/5, nsga2 0/5 (p<0.05)
+  sa vs sga: sa 0/5, sga 0/5 (p<0.05)
+  sa vs ts: sa 0/5, ts 5/5 (p<0.05)
+  sga vs nsga2: sga 0/5, nsga2 0/5 (p<0.05)
+  sga vs ts: sga 0/5, ts 0/5 (p<0.05)
+
+Kendall's tau:
+  Kendall's tau (current_5_5_3 vs equal_1_1_1): τ = 1.0000, p = 0.0028
+  → Algorithm ranking is robust to preference-weight perturbation.
+  τ(current_5_5_3, equal_1_1_1) = 1.0000 (p=0.0028)
+  τ(current_5_5_3, jfi_dominant) = 1.0000 (p=0.0028)
+  τ(current_5_5_3, spatial_dom) = 1.0000 (p=0.0028)
+  τ(current_5_5_3, lisa_dominant) = 1.0000 (p=0.0028)
+  τ(equal_1_1_1, jfi_dominant) = 1.0000 (p=0.0028)
+  τ(equal_1_1_1, spatial_dom) = 1.0000 (p=0.0028)
+  τ(equal_1_1_1, lisa_dominant) = 1.0000 (p=0.0028)
+  τ(jfi_dominant, spatial_dom) = 1.0000 (p=0.0028)
+  τ(jfi_dominant, lisa_dominant) = 1.0000 (p=0.0028)
+  τ(spatial_dom, lisa_dominant) = 1.0000 (p=0.0028)

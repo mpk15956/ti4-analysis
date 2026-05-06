@@ -1,0 +1,341 @@
+==========================================================================================
+NON-PARAMETRIC STATISTICAL ANALYSIS — BENCHMARK RESULTS
+==========================================================================================
+
+1. DESCRIPTIVE STATISTICS (Median [IQR])
+------------------------------------------------------------------------------------------
+
+  composite_score:
+    rs        median=  0.0005  IQR=[0.0004, 0.0007]  range=[0.0003, 0.0014]  n=100
+    hc        median=  0.0003  IQR=[0.0002, 0.0004]  range=[0.0001, 0.0009]  n=100
+    sa        median=  0.0004  IQR=[0.0003, 0.0005]  range=[0.0002, 0.0607]  n=100
+    sga       median=  0.0001  IQR=[0.0001, 0.0002]  range=[0.0000, 0.0007]  n=100
+    nsga2     median=  0.0001  IQR=[0.0001, 0.0001]  range=[0.0000, 0.0005]  n=100
+    ts        median=  0.0002  IQR=[0.0002, 0.0004]  range=[0.0001, 0.0008]  n=100
+
+  morans_i:
+    rs        median= -0.5972  IQR=[-0.6595, -0.5513]  range=[-0.8223, -0.3055]  n=100
+    hc        median= -0.5886  IQR=[-0.6434, -0.5534]  range=[-0.8096, -0.3534]  n=100
+    sa        median= -0.6049  IQR=[-0.6649, -0.5469]  range=[-0.7734, -0.2401]  n=100
+    sga       median= -0.5836  IQR=[-0.6480, -0.5423]  range=[-0.7683, -0.4134]  n=100
+    nsga2     median= -0.5952  IQR=[-0.6435, -0.5233]  range=[-0.7940, -0.3005]  n=100
+    ts        median= -0.5785  IQR=[-0.6711, -0.4927]  range=[-0.9006, -0.2894]  n=100
+
+  jains_index:
+    rs        median=  0.9987  IQR=[0.9982, 0.9990]  range=[0.9963, 0.9994]  n=100
+    hc        median=  0.9993  IQR=[0.9990, 0.9995]  range=[0.9976, 0.9997]  n=100
+    sa        median=  0.9991  IQR=[0.9987, 0.9993]  range=[0.9962, 0.9996]  n=100
+    sga       median=  0.9997  IQR=[0.9995, 0.9998]  range=[0.9981, 0.9999]  n=100
+    nsga2     median=  0.9997  IQR=[0.9996, 0.9998]  range=[0.9987, 0.9999]  n=100
+    ts        median=  0.9994  IQR=[0.9990, 0.9997]  range=[0.9979, 0.9999]  n=100
+
+  jfi_resources:
+    rs        median=  0.9989  IQR=[0.9984, 0.9992]  range=[0.9965, 0.9995]  n=100
+    hc        median=  0.9994  IQR=[0.9991, 0.9995]  range=[0.9976, 0.9998]  n=100
+    sa        median=  0.9992  IQR=[0.9988, 0.9994]  range=[0.9973, 0.9997]  n=100
+    sga       median=  0.9997  IQR=[0.9995, 0.9998]  range=[0.9983, 1.0000]  n=100
+    nsga2     median=  0.9998  IQR=[0.9997, 0.9998]  range=[0.9987, 0.9999]  n=100
+    ts        median=  0.9994  IQR=[0.9991, 0.9997]  range=[0.9979, 1.0000]  n=100
+
+  jfi_influence:
+    rs        median=  0.9989  IQR=[0.9984, 0.9992]  range=[0.9971, 0.9996]  n=100
+    hc        median=  0.9994  IQR=[0.9992, 0.9995]  range=[0.9978, 0.9998]  n=100
+    sa        median=  0.9992  IQR=[0.9989, 0.9994]  range=[0.9963, 0.9996]  n=100
+    sga       median=  0.9998  IQR=[0.9996, 0.9998]  range=[0.9982, 0.9999]  n=100
+    nsga2     median=  0.9998  IQR=[0.9997, 0.9998]  range=[0.9988, 0.9999]  n=100
+    ts        median=  0.9995  IQR=[0.9992, 0.9998]  range=[0.9979, 1.0000]  n=100
+
+  lisa_penalty:
+    rs        median=  0.0640  IQR=[0.0346, 0.1090]  range=[0.0000, 0.2575]  n=100
+    hc        median=  0.0376  IQR=[0.0106, 0.0779]  range=[0.0000, 0.3001]  n=100
+    sa        median=  0.0351  IQR=[0.0135, 0.0650]  range=[0.0000, 3.0018]  n=100
+    sga       median=  0.0029  IQR=[0.0000, 0.0169]  range=[0.0000, 0.0799]  n=100
+    nsga2     median=  0.0000  IQR=[0.0000, 0.0103]  range=[0.0000, 0.0706]  n=100
+    ts        median=  0.0000  IQR=[0.0000, 0.0614]  range=[0.0000, 0.2374]  n=100
+
+  balance_gap:
+    rs        median=100.0000  IQR=[84.0000, 118.0000]  range=[48.0000, 164.0000]  n=100
+    hc        median= 98.0000  IQR=[82.0000, 116.5000]  range=[56.0000, 184.0000]  n=100
+    sa        median= 93.0000  IQR=[80.0000, 110.5000]  range=[58.0000, 160.0000]  n=100
+    sga       median= 88.0000  IQR=[76.0000, 106.0000]  range=[38.0000, 156.0000]  n=100
+    nsga2     median= 88.0000  IQR=[74.0000, 106.0000]  range=[42.0000, 168.0000]  n=100
+    ts        median= 99.0000  IQR=[72.0000, 120.0000]  range=[24.0000, 186.0000]  n=100
+
+==========================================================================================
+2. SHAPIRO-WILK NORMALITY TEST ON PAIRED DIFFERENCES
+   (Justification for non-parametric tests, alpha=0.05)
+------------------------------------------------------------------------------------------
+  composite_score       rs-hc       W=0.9808  p=0.1533  NORMAL
+  composite_score       rs-sa       W=0.0849  p=0.0000  NON-NORMAL ***
+  composite_score       rs-sga      W=0.9426  p=0.0003  NON-NORMAL ***
+  composite_score       rs-nsga2    W=0.9584  p=0.0031  NON-NORMAL ***
+  composite_score       rs-ts       W=0.9874  p=0.4652  NORMAL
+  composite_score       hc-sa       W=0.0883  p=0.0000  NON-NORMAL ***
+  composite_score       hc-sga      W=0.9489  p=0.0007  NON-NORMAL ***
+  composite_score       hc-nsga2    W=0.9464  p=0.0005  NON-NORMAL ***
+  composite_score       hc-ts       W=0.9901  p=0.6737  NORMAL
+  composite_score       sa-sga      W=0.0859  p=0.0000  NON-NORMAL ***
+  composite_score       sa-nsga2    W=0.0865  p=0.0000  NON-NORMAL ***
+  composite_score       sa-ts       W=0.0905  p=0.0000  NON-NORMAL ***
+  composite_score       sga-nsga2   W=0.8994  p=0.0000  NON-NORMAL ***
+  composite_score       sga-ts      W=0.9475  p=0.0006  NON-NORMAL ***
+  composite_score       nsga2-ts    W=0.9302  p=0.0001  NON-NORMAL ***
+  morans_i              rs-hc       W=0.9721  p=0.0320  NON-NORMAL ***
+  morans_i              rs-sa       W=0.9657  p=0.0105  NON-NORMAL ***
+  morans_i              rs-sga      W=0.9795  p=0.1214  NORMAL
+  morans_i              rs-nsga2    W=0.9935  p=0.9188  NORMAL
+  morans_i              rs-ts       W=0.9841  p=0.2739  NORMAL
+  morans_i              hc-sa       W=0.9510  p=0.0010  NON-NORMAL ***
+  morans_i              hc-sga      W=0.9935  p=0.9161  NORMAL
+  morans_i              hc-nsga2    W=0.9779  p=0.0917  NORMAL
+  morans_i              hc-ts       W=0.9867  p=0.4202  NORMAL
+  morans_i              sa-sga      W=0.9854  p=0.3405  NORMAL
+  morans_i              sa-nsga2    W=0.9889  p=0.5764  NORMAL
+  morans_i              sa-ts       W=0.9729  p=0.0367  NON-NORMAL ***
+  morans_i              sga-nsga2   W=0.9890  p=0.5824  NORMAL
+  morans_i              sga-ts      W=0.9861  p=0.3797  NORMAL
+  morans_i              nsga2-ts    W=0.9882  p=0.5211  NORMAL
+  jains_index           rs-hc       W=0.9660  p=0.0111  NON-NORMAL ***
+  jains_index           rs-sa       W=0.7174  p=0.0000  NON-NORMAL ***
+  jains_index           rs-sga      W=0.9383  p=0.0002  NON-NORMAL ***
+  jains_index           rs-nsga2    W=0.9461  p=0.0005  NON-NORMAL ***
+  jains_index           rs-ts       W=0.9910  p=0.7440  NORMAL
+  jains_index           hc-sa       W=0.8193  p=0.0000  NON-NORMAL ***
+  jains_index           hc-sga      W=0.9128  p=0.0000  NON-NORMAL ***
+  jains_index           hc-nsga2    W=0.8944  p=0.0000  NON-NORMAL ***
+  jains_index           hc-ts       W=0.9697  p=0.0210  NON-NORMAL ***
+  jains_index           sa-sga      W=0.7891  p=0.0000  NON-NORMAL ***
+  jains_index           sa-nsga2    W=0.7838  p=0.0000  NON-NORMAL ***
+  jains_index           sa-ts       W=0.8865  p=0.0000  NON-NORMAL ***
+  jains_index           sga-nsga2   W=0.9325  p=0.0001  NON-NORMAL ***
+  jains_index           sga-ts      W=0.9467  p=0.0005  NON-NORMAL ***
+  jains_index           nsga2-ts    W=0.9436  p=0.0003  NON-NORMAL ***
+  jfi_resources         rs-hc       W=0.9661  p=0.0113  NON-NORMAL ***
+  jfi_resources         rs-sa       W=0.9819  p=0.1880  NORMAL
+  jfi_resources         rs-sga      W=0.9363  p=0.0001  NON-NORMAL ***
+  jfi_resources         rs-nsga2    W=0.9466  p=0.0005  NON-NORMAL ***
+  jfi_resources         rs-ts       W=0.9849  p=0.3105  NORMAL
+  jfi_resources         hc-sa       W=0.9734  p=0.0406  NON-NORMAL ***
+  jfi_resources         hc-sga      W=0.8950  p=0.0000  NON-NORMAL ***
+  jfi_resources         hc-nsga2    W=0.8903  p=0.0000  NON-NORMAL ***
+  jfi_resources         hc-ts       W=0.9666  p=0.0123  NON-NORMAL ***
+  jfi_resources         sa-sga      W=0.9759  p=0.0634  NORMAL
+  jfi_resources         sa-nsga2    W=0.9554  p=0.0019  NON-NORMAL ***
+  jfi_resources         sa-ts       W=0.9771  p=0.0789  NORMAL
+  jfi_resources         sga-nsga2   W=0.9622  p=0.0058  NON-NORMAL ***
+  jfi_resources         sga-ts      W=0.9344  p=0.0001  NON-NORMAL ***
+  jfi_resources         nsga2-ts    W=0.9133  p=0.0000  NON-NORMAL ***
+  jfi_influence         rs-hc       W=0.9662  p=0.0115  NON-NORMAL ***
+  jfi_influence         rs-sa       W=0.7753  p=0.0000  NON-NORMAL ***
+  jfi_influence         rs-sga      W=0.9389  p=0.0002  NON-NORMAL ***
+  jfi_influence         rs-nsga2    W=0.9375  p=0.0001  NON-NORMAL ***
+  jfi_influence         rs-ts       W=0.9852  p=0.3272  NORMAL
+  jfi_influence         hc-sa       W=0.8493  p=0.0000  NON-NORMAL ***
+  jfi_influence         hc-sga      W=0.9118  p=0.0000  NON-NORMAL ***
+  jfi_influence         hc-nsga2    W=0.8927  p=0.0000  NON-NORMAL ***
+  jfi_influence         hc-ts       W=0.9781  p=0.0952  NORMAL
+  jfi_influence         sa-sga      W=0.7699  p=0.0000  NON-NORMAL ***
+  jfi_influence         sa-nsga2    W=0.7308  p=0.0000  NON-NORMAL ***
+  jfi_influence         sa-ts       W=0.8705  p=0.0000  NON-NORMAL ***
+  jfi_influence         sga-nsga2   W=0.9390  p=0.0002  NON-NORMAL ***
+  jfi_influence         sga-ts      W=0.9549  p=0.0018  NON-NORMAL ***
+  jfi_influence         nsga2-ts    W=0.9232  p=0.0000  NON-NORMAL ***
+  lisa_penalty          rs-hc       W=0.9469  p=0.0005  NON-NORMAL ***
+  lisa_penalty          rs-sa       W=0.1964  p=0.0000  NON-NORMAL ***
+  lisa_penalty          rs-sga      W=0.9354  p=0.0001  NON-NORMAL ***
+  lisa_penalty          rs-nsga2    W=0.9454  p=0.0004  NON-NORMAL ***
+  lisa_penalty          rs-ts       W=0.9180  p=0.0000  NON-NORMAL ***
+  lisa_penalty          hc-sa       W=0.2128  p=0.0000  NON-NORMAL ***
+  lisa_penalty          hc-sga      W=0.8537  p=0.0000  NON-NORMAL ***
+  lisa_penalty          hc-nsga2    W=0.8196  p=0.0000  NON-NORMAL ***
+  lisa_penalty          hc-ts       W=0.9176  p=0.0000  NON-NORMAL ***
+  lisa_penalty          sa-sga      W=0.1539  p=0.0000  NON-NORMAL ***
+  lisa_penalty          sa-nsga2    W=0.1531  p=0.0000  NON-NORMAL ***
+  lisa_penalty          sa-ts       W=0.2268  p=0.0000  NON-NORMAL ***
+  lisa_penalty          sga-nsga2   W=0.9007  p=0.0000  NON-NORMAL ***
+  lisa_penalty          sga-ts      W=0.7496  p=0.0000  NON-NORMAL ***
+  lisa_penalty          nsga2-ts    W=0.7400  p=0.0000  NON-NORMAL ***
+  balance_gap           rs-hc       W=0.9856  p=0.3481  NORMAL
+  balance_gap           rs-sa       W=0.9897  p=0.6381  NORMAL
+  balance_gap           rs-sga      W=0.9871  p=0.4424  NORMAL
+  balance_gap           rs-nsga2    W=0.9927  p=0.8701  NORMAL
+  balance_gap           rs-ts       W=0.9736  p=0.0419  NON-NORMAL ***
+  balance_gap           hc-sa       W=0.9842  p=0.2798  NORMAL
+  balance_gap           hc-sga      W=0.9907  p=0.7200  NORMAL
+  balance_gap           hc-nsga2    W=0.9846  p=0.2948  NORMAL
+  balance_gap           hc-ts       W=0.9887  p=0.5638  NORMAL
+  balance_gap           sa-sga      W=0.9766  p=0.0720  NORMAL
+  balance_gap           sa-nsga2    W=0.9853  p=0.3314  NORMAL
+  balance_gap           sa-ts       W=0.9875  p=0.4730  NORMAL
+  balance_gap           sga-nsga2   W=0.9916  p=0.7889  NORMAL
+  balance_gap           sga-ts      W=0.9827  p=0.2152  NORMAL
+  balance_gap           nsga2-ts    W=0.9884  p=0.5377  NORMAL
+
+  >> Non-normal distributions detected. Non-parametric tests are required.
+
+==========================================================================================
+3. FRIEDMAN OMNIBUS TEST (composite_score)
+------------------------------------------------------------------------------------------
+  chi2 = 395.7400,  df = 5,  p = 0.000000,  n = 100
+  >> SIGNIFICANT — proceed to pairwise post-hoc tests.
+
+==========================================================================================
+4. WILCOXON SIGNED-RANK PAIRWISE TESTS (Holm-Bonferroni corrected)
+------------------------------------------------------------------------------------------
+
+  composite_score:
+    rs vs hc        W=     107.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.085 (large)
+    rs vs sa        W=     118.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.045 (large)
+    rs vs sga       W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.000 (large)
+    rs vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.000 (large)
+    rs vs ts        W=      67.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.060 (large)
+    hc vs sa        W=    1201.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.695 (medium)
+    hc vs sga       W=      14.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.020 (large)
+    hc vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.010 (large)
+    hc vs ts        W=    1413.5  p_raw=0.0005  p_corr=0.0005 ***  VDA=0.325 (medium)
+    sa vs sga       W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.000 (large)
+    sa vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.000 (large)
+    sa vs ts        W=     669.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.215 (large)
+    sga vs nsga2    W=     335.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.290 (large)
+    sga vs ts       W=     182.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.810 (large)
+    nsga2 vs ts     W=      32.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.870 (large)
+
+  morans_i:
+    rs vs hc        W=    2297.5  p_raw=0.4341  p_corr=1.0000      VDA=0.560 (small)
+    rs vs sa        W=    2427.5  p_raw=0.7374  p_corr=1.0000      VDA=0.510 (negligible)
+    rs vs sga       W=    2197.5  p_raw=0.2601  p_corr=1.0000      VDA=0.560 (small)
+    rs vs nsga2     W=    2137.0  p_raw=0.1822  p_corr=1.0000      VDA=0.550 (negligible)
+    rs vs ts        W=    2043.0  p_raw=0.0975  p_corr=1.0000      VDA=0.560 (small)
+    hc vs sa        W=    2036.0  p_raw=0.0927  p_corr=1.0000      VDA=0.400 (small)
+    hc vs sga       W=    2469.0  p_raw=0.8473  p_corr=1.0000      VDA=0.480 (negligible)
+    hc vs nsga2     W=    2325.0  p_raw=0.4917  p_corr=1.0000      VDA=0.550 (negligible)
+    hc vs ts        W=    2110.0  p_raw=0.1536  p_corr=1.0000      VDA=0.550 (negligible)
+    sa vs sga       W=    2155.0  p_raw=0.2033  p_corr=1.0000      VDA=0.540 (negligible)
+    sa vs nsga2     W=    2084.5  p_raw=0.1299  p_corr=1.0000      VDA=0.530 (negligible)
+    sa vs ts        W=    1910.0  p_raw=0.0345  p_corr=0.5170      VDA=0.590 (small)
+    sga vs nsga2    W=    2367.0  p_raw=0.5870  p_corr=1.0000      VDA=0.530 (negligible)
+    sga vs ts       W=    2337.0  p_raw=0.5180  p_corr=1.0000      VDA=0.520 (negligible)
+    nsga2 vs ts     W=    2327.0  p_raw=0.4960  p_corr=1.0000      VDA=0.530 (negligible)
+
+  jains_index:
+    rs vs hc        W=      78.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.950 (large)
+    rs vs sa        W=     279.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.920 (large)
+    rs vs sga       W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    rs vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    rs vs ts        W=     113.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.935 (large)
+    hc vs sa        W=     723.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.250 (large)
+    hc vs sga       W=      14.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.965 (large)
+    hc vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    hc vs ts        W=    1538.5  p_raw=0.0007  p_corr=0.0007 ***  VDA=0.700 (medium)
+    sa vs sga       W=       2.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.990 (large)
+    sa vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    sa vs ts        W=     619.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.830 (large)
+    sga vs nsga2    W=     577.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.705 (medium)
+    sga vs ts       W=     567.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.205 (large)
+    nsga2 vs ts     W=     229.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.150 (large)
+
+  jfi_resources:
+    rs vs hc        W=     172.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.925 (large)
+    rs vs sa        W=     390.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.890 (large)
+    rs vs sga       W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    rs vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    rs vs ts        W=     221.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.905 (large)
+    hc vs sa        W=     927.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.255 (large)
+    hc vs sga       W=      23.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.965 (large)
+    hc vs nsga2     W=      13.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.980 (large)
+    hc vs ts        W=    1575.5  p_raw=0.0017  p_corr=0.0017 ***  VDA=0.675 (medium)
+    sa vs sga       W=       8.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.975 (large)
+    sa vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    sa vs ts        W=     777.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.795 (large)
+    sga vs nsga2    W=     730.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.675 (medium)
+    sga vs ts       W=     800.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.260 (large)
+    nsga2 vs ts     W=     350.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.220 (large)
+
+  jfi_influence:
+    rs vs hc        W=     190.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.925 (large)
+    rs vs sa        W=     522.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.815 (large)
+    rs vs sga       W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    rs vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    rs vs ts        W=     176.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.915 (large)
+    hc vs sa        W=     830.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.275 (large)
+    hc vs sga       W=     128.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.960 (large)
+    hc vs nsga2     W=       6.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.965 (large)
+    hc vs ts        W=    1516.0  p_raw=0.0046  p_corr=0.0046 ***  VDA=0.635 (small)
+    sa vs sga       W=       3.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.990 (large)
+    sa vs nsga2     W=       0.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=1.000 (large)
+    sa vs ts        W=     685.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.790 (large)
+    sga vs nsga2    W=     932.5  p_raw=0.0001  p_corr=0.0003 ***  VDA=0.640 (medium)
+    sga vs ts       W=     716.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.285 (large)
+    nsga2 vs ts     W=     388.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.235 (large)
+
+  lisa_penalty:
+    rs vs hc        W=    1506.0  p_raw=0.0011  p_corr=0.0056 ***  VDA=0.320 (medium)
+    rs vs sa        W=    1095.0  p_raw=0.0000  p_corr=0.0001 ***  VDA=0.290 (large)
+    rs vs sga       W=      22.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.060 (large)
+    rs vs nsga2     W=      37.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.050 (large)
+    rs vs ts        W=     865.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.205 (large)
+    hc vs sa        W=    2269.0  p_raw=0.5792  p_corr=0.5792      VDA=0.480 (negligible)
+    hc vs sga       W=     215.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.135 (large)
+    hc vs nsga2     W=     109.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.110 (large)
+    hc vs ts        W=    1204.0  p_raw=0.0004  p_corr=0.0026 ***  VDA=0.305 (medium)
+    sa vs sga       W=     170.5  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.160 (large)
+    sa vs nsga2     W=      96.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.130 (large)
+    sa vs ts        W=    1383.0  p_raw=0.0075  p_corr=0.0225 ***  VDA=0.300 (medium)
+    sga vs nsga2    W=     937.0  p_raw=0.1058  p_corr=0.2116      VDA=0.435 (small)
+    sga vs ts       W=     760.0  p_raw=0.0012  p_corr=0.0056 ***  VDA=0.535 (negligible)
+    nsga2 vs ts     W=     676.0  p_raw=0.0002  p_corr=0.0015 ***  VDA=0.555 (negligible)
+
+  balance_gap:
+    rs vs hc        W=    2347.5  p_raw=0.7821  p_corr=1.0000      VDA=0.470 (negligible)
+    rs vs sa        W=    1792.0  p_raw=0.0353  p_corr=0.2487      VDA=0.425 (small)
+    rs vs sga       W=    1310.5  p_raw=0.0001  p_corr=0.0009 ***  VDA=0.320 (medium)
+    rs vs nsga2     W=     962.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.275 (large)
+    rs vs ts        W=    2235.5  p_raw=0.4031  p_corr=1.0000      VDA=0.515 (negligible)
+    hc vs sa        W=    1596.0  p_raw=0.0111  p_corr=0.1108      VDA=0.345 (medium)
+    hc vs sga       W=    1160.0  p_raw=0.0000  p_corr=0.0004 ***  VDA=0.335 (medium)
+    hc vs nsga2     W=     875.0  p_raw=0.0000  p_corr=0.0000 ***  VDA=0.265 (large)
+    hc vs ts        W=    1995.5  p_raw=0.1274  p_corr=0.6370      VDA=0.460 (negligible)
+    sa vs sga       W=    1638.0  p_raw=0.0249  p_corr=0.2237      VDA=0.370 (small)
+    sa vs nsga2     W=    1423.0  p_raw=0.0009  p_corr=0.0103 ***  VDA=0.340 (medium)
+    sa vs ts        W=    2368.0  p_raw=0.7087  p_corr=1.0000      VDA=0.515 (negligible)
+    sga vs nsga2    W=    1799.5  p_raw=0.1022  p_corr=0.6133      VDA=0.440 (small)
+    sga vs ts       W=    2127.5  p_raw=0.2908  p_corr=1.0000      VDA=0.520 (negligible)
+    nsga2 vs ts     W=    1777.5  p_raw=0.0311  p_corr=0.2487      VDA=0.595 (small)
+
+==========================================================================================
+5. BOOTSTRAP 95% CI ON MEDIAN DIFFERENCE (composite_score)
+------------------------------------------------------------------------------------------
+  rs vs hc        median_diff=+0.0002  95% CI=[+0.0002, +0.0003]  (excludes 0)
+  rs vs sa        median_diff=+0.0002  95% CI=[+0.0001, +0.0002]  (excludes 0)
+  rs vs sga       median_diff=+0.0004  95% CI=[+0.0003, +0.0005]  (excludes 0)
+  rs vs nsga2     median_diff=+0.0004  95% CI=[+0.0004, +0.0005]  (excludes 0)
+  rs vs ts        median_diff=+0.0003  95% CI=[+0.0002, +0.0004]  (excludes 0)
+  hc vs sa        median_diff=-0.0000  95% CI=[-0.0001, +0.0000]  (includes 0)
+  hc vs sga       median_diff=+0.0002  95% CI=[+0.0001, +0.0002]  (excludes 0)
+  hc vs nsga2     median_diff=+0.0002  95% CI=[+0.0002, +0.0003]  (excludes 0)
+  hc vs ts        median_diff=+0.0001  95% CI=[+0.0000, +0.0002]  (includes 0)
+  sa vs sga       median_diff=+0.0002  95% CI=[+0.0002, +0.0003]  (excludes 0)
+  sa vs nsga2     median_diff=+0.0003  95% CI=[+0.0002, +0.0003]  (excludes 0)
+  sa vs ts        median_diff=+0.0002  95% CI=[+0.0001, +0.0002]  (excludes 0)
+  sga vs nsga2    median_diff=+0.0000  95% CI=[+0.0000, +0.0001]  (includes 0)
+  sga vs ts       median_diff=-0.0001  95% CI=[-0.0002, -0.0001]  (excludes 0)
+  nsga2 vs ts     median_diff=-0.0001  95% CI=[-0.0002, -0.0001]  (excludes 0)
+
+==========================================================================================
+INTERPRETATION GUIDE
+==========================================================================================
+Friedman test:
+  - p < 0.05 → at least one algorithm differs from the others
+
+Wilcoxon signed-rank (Holm-Bonferroni):
+  - p_corr < 0.05 → statistically significant pairwise difference
+
+Vargha-Delaney A (for composite_score, lower = better):
+  - A > 0.50 → first algorithm tends to produce LOWER (better) scores
+  - |A - 0.5| < 0.06: negligible
+  - |A - 0.5| < 0.14: small
+  - |A - 0.5| < 0.21: medium
+  - |A - 0.5| >= 0.21: large
+
+Bootstrap CI:
+  - CI excludes 0 → practically significant median difference

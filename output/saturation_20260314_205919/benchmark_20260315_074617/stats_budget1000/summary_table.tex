@@ -1,0 +1,36 @@
+\begin{table}[ht]
+\centering
+\caption{Algorithm comparison on composite score (lower is better). Median [IQR], Wilcoxon p-values Holm-corrected, Vargha-Delaney $\hat{A}$ effect sizes.}
+\label{tab:algorithm_comparison}
+\begin{tabular}{lcccc}
+\toprule
+Algorithm & Median & IQR & Time (s) \\
+\midrule
+  RS & 0.0005 & [0.0004, 0.0007] & -- \\
+  HC & 0.0003 & [0.0002, 0.0004] & -- \\
+  SA & 0.0004 & [0.0003, 0.0005] & -- \\
+  SGA & 0.0001 & [0.0001, 0.0002] & -- \\
+  NSGA2 & 0.0001 & [0.0001, 0.0001] & -- \\
+  TS & 0.0002 & [0.0002, 0.0004] & -- \\
+\midrule
+\multicolumn{4}{l}{\textit{Pairwise comparisons (composite\_score)}} \\
+Pair & $p_{\text{corr}}$ & $\hat{A}$ & 95\% CI($\Delta$ median) \\
+\midrule
+  rs vs hc & 0.0000* & 0.085 (large) & [+0.0002, +0.0003] \\
+  rs vs sa & 0.0000* & 0.045 (large) & [+0.0001, +0.0002] \\
+  rs vs sga & 0.0000* & 0.000 (large) & [+0.0003, +0.0005] \\
+  rs vs nsga2 & 0.0000* & 0.000 (large) & [+0.0004, +0.0005] \\
+  rs vs ts & 0.0000* & 0.060 (large) & [+0.0002, +0.0004] \\
+  hc vs sa & 0.0000* & 0.695 (medium) & [-0.0001, +0.0000] \\
+  hc vs sga & 0.0000* & 0.020 (large) & [+0.0001, +0.0002] \\
+  hc vs nsga2 & 0.0000* & 0.010 (large) & [+0.0002, +0.0003] \\
+  hc vs ts & 0.0005* & 0.325 (medium) & [+0.0000, +0.0002] \\
+  sa vs sga & 0.0000* & 0.000 (large) & [+0.0002, +0.0003] \\
+  sa vs nsga2 & 0.0000* & 0.000 (large) & [+0.0002, +0.0003] \\
+  sa vs ts & 0.0000* & 0.215 (large) & [+0.0001, +0.0002] \\
+  sga vs nsga2 & 0.0000* & 0.290 (large) & [+0.0000, +0.0001] \\
+  sga vs ts & 0.0000* & 0.810 (large) & [-0.0002, -0.0001] \\
+  nsga2 vs ts & 0.0000* & 0.870 (large) & [-0.0002, -0.0001] \\
+\bottomrule
+\end{tabular}
+\end{table}
