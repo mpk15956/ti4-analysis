@@ -104,3 +104,21 @@ Losing a carrier in a Gravity Rift also loses any transported ground forces and 
 2. **Dynamic Inflection Points**: This model captures the shift in strategic value based on geography (see table above).
 3. **Static Topology Integration**: Since map anomalies are frozen during optimization, the distance from each home seat to a rift is constant. The modifier is applied when computing shortest modified distance along each path, preserving O(1) evaluation speed in the metaheuristic once the topology is built.
 4. **Optionality of the Rift**: The pathfinding algorithm uses breadth-first search to minimize modified distance. It therefore automatically chooses between a safe path and a rift path: the effective cost is $\min(\text{safe distance},\ \text{rift path distance} + M)$. Rational players take the rift only when expected tempo favors it.
+
+---
+
+# Optimization-Run Anomaly: SA Seed=37 Temperature-Calibration Failure (Phase 2b)
+
+## The Observation
+In the Phase 2b methods-justification benchmark (six algorithms × 100 seeds × eight evaluation budgets, `output/saturation_20260314_205919/benchmark_20260315_074617/`), one SA run — **seed = 37**, accounting for ≈1% of SA's Phase 2b observations — failed to escape its initial configuration. The optimizer recorded a final composite of **0.1816** with zero accepted moves across all evaluation budgets, on a starting map with **initial Moran's I = +0.439** (positive autocorrelation, atypical of the seed pool).
+
+## Mechanism
+SA's initial temperature $T_0$ is calibrated by sampling $\Delta$-proposals from the starting configuration and choosing $T_0$ such that the average acceptance rate matches a target (default 80%, see `scripts/optimize_hyperparameters.py` for the tuned `initial_acceptance_rate = 0.788681`). When the starting configuration is itself a deep local minimum on the *spatial* axis — a high-clustering arrangement near the boundary of feasible permutations — sampled $\Delta$ values are dominated by unfavorable moves, producing a $T_0$ small enough that effectively no proposal clears the Metropolis criterion. The chain then never moves. This is a known small-sample failure mode of acceptance-rate-targeted temperature calibration; see Atiqullah (2004) and standard SA literature on cold-start pathologies.
+
+## Scope of the Effect
+- **Other algorithms handle seed=37 normally.** HC achieves composite = 0.0002, SGA, NSGA-II, and TS all escape the initial state without anomaly. The failure is specific to SA's $T_0$ heuristic, not to the seed itself.
+- **Phase 1 results are not affected.** Phase 1 (the five-condition ablation, `benchmark_20260314_233002/`) uses three independent SA chains per seed and the *minimum* composite is reported. With three chains, the probability of all three sharing the same calibration failure on seed=37 is negligible.
+- **Phase 2b headline rankings are unaffected.** The pairwise Wilcoxon results comparing SA to other algorithms remain significant ($p_{\text{corr}} < 0.001$, `pairwise_tests.csv`) with or without seed=37 included.
+
+## Mitigation in Reported Results
+Per the pre-registered protocol, no observations are excluded from the published Phase 2b summary table. The seed=37 SA composite contributes to the long upper tail visible in the SA distribution (`fig_summary.pdf`) but does not perturb the median or 25th percentile, which are the values cited in the algorithm-comparison narrative. Future work should re-calibrate $T_0$ from a *secondary* configuration when the primary configuration's $\Delta$-distribution is degenerate; this is a one-line change in `simulated_annealing.py` and is left for a follow-up release rather than retroactively re-running the benchmark.

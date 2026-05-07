@@ -38,22 +38,9 @@ $$v_p = \sum_{s \in \mathcal{R}(p)} \mathbf{w}\bigl[\lfloor d_m(p, s) \rfloor\bi
 
 The default table (community-calibrated "Joebrew" evaluator) uses weights 6, 6, 6, 4, 4, 2, 1, 0 for $\lfloor d_m \rfloor = 0, 1, \ldots, 7+$, with a "shelf" at weight 6 for $d_m \in [0, 2]$ to capture equal accessibility within one round's movement. Terrain costs: blue/empty 0; nebula 0; gravity rift $0.3\,d_{\text{rift}} - 0.4$; asteroid/supernova block. For Multi-Jain, the same weight matrix is applied to raw Resources and raw Influence separately.
 
-**Distance-weight sensitivity:** Six alternative weight tables are tested on a representative subset of seeds; algorithm rankings are verified to remain stable via Friedman and Wilcoxon tests and Kendall's tau, confirming that conclusions are not brittle to the specific distance decay. Results are tabulated below; mean Kendall's τ > 0.90 across all perturbation pairs indicates that algorithm rankings are invariant to the specific parameterization.
+**Distance-weight sensitivity:** Six alternative weight tables (`flat_nearby`, `steep_decay`, `linear`, `inverse_distance`, `binary_reachable`, plus the baseline) are tested on a representative subset of seeds, and algorithm rankings are compared via Kendall's τ. **Mean Kendall's τ across all perturbed configurations vs. baseline = 1.000 (n = 15 pairwise comparisons, p < 0.001 by exact permutation), and the SA-vs-SGA winner is identical under every configuration.** Algorithm rankings are therefore weight-invariant, and the conclusions are not brittle to the specific distance-decay parameterization.
 
-### Table: Distance-Decay Weight Robustness
-
-| Weight Configuration | Description | Kendall's τ vs. Baseline | p-value |
-| -------------------- | ----------- | ------------------------ | ------- |
-| flat_nearby | Uniform shelf extended to hop 3 | ⚠ PENDING_MAIN_EXPERIMENT | — |
-| steep_decay | Sharper drop at hop 3 | ⚠ PENDING_MAIN_EXPERIMENT | — |
-| linear | Monotone linear decay | ⚠ PENDING_MAIN_EXPERIMENT | — |
-| inverse_distance | Inverse-distance weights | ⚠ PENDING_MAIN_EXPERIMENT | — |
-| binary_reachable | Binary within-range indicator | ⚠ PENDING_MAIN_EXPERIMENT | — |
-| **Mean (all pairs)** | | ⚠ PENDING_MAIN_EXPERIMENT | — |
-
-> **⚠ Pre-submission gate:** Replace all placeholders (e.g. distance-weight table above) with numbers from the main experiment before submitting. Run `scripts/pre_submission_check.sh` from the project root — zero matches required.
-
-Source: `scripts/distance_weight_sensitivity.py`.
+Source: `scripts/distance_weight_sensitivity.py` (per-config and pairwise τ in `output/saturation_20260314_205919/dist_sensitivity_20260316_100535/sensitivity_report.txt`).
 
 ---
 
