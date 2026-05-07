@@ -33,6 +33,9 @@ import pandas as pd
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
+from ti4_analysis.algorithms.map_topology import morans_i_null
+from ti4_analysis.algorithms.spatial_optimizer import SPATIAL_DEGENERATE_THRESHOLD
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -51,6 +54,14 @@ def parse_args() -> argparse.Namespace:
                    help="Run weight sensitivity analysis across multiple weight configs")
     p.add_argument("--ablation", action="store_true",
                    help="Run Multi-Jain vs scalar JFI ablation analysis")
+    p.add_argument("--n-spatial", type=int, default=31,
+                   help=("Spatial graph |G| used by the optimizer's composite. "
+                         "Default 31 matches the canonical 6p layout (37 board "
+                         "hexes − 6 home tiles, after zero-degree purge); see "
+                         "Methodology §3.3. The benchmark CSV does not currently "
+                         "carry n_spatial as a column, so this is supplied via "
+                         "CLI rather than read from data. If a future benchmark "
+                         "writes n_spatial per row, prefer that source."))
     return p.parse_args()
 
 
@@ -454,27 +465,83 @@ def to_latex(desc: pd.DataFrame, wilcoxon_df: pd.DataFrame, boot_df: pd.DataFram
 # ---------------------------------------------------------------------------
 
 WEIGHT_CONFIGS = {
-    "current_5_5_3": {"morans_i": 5/13, "jains_index": 5/13, "lisa_penalty": 3/13},
+    # equal_1_1_1 is the manuscript's nominal weighting (Methodology §3.1);
+    # the other four are sensitivity-grid perturbations that probe whether
+    # rankings hold under alternative weight choices. legacy_5_5_3 was
+    # named `current_5_5_3` in earlier versions of this file — renamed
+    # because "current" was a lie ("current" implied live weighting, but
+    # the live weighting is 1:1:1; this is the historical formulation
+    # retained for sensitivity comparison).
     "equal_1_1_1":   {"morans_i": 1/3,  "jains_index": 1/3,  "lisa_penalty": 1/3},
+    "legacy_5_5_3":  {"morans_i": 5/13, "jains_index": 5/13, "lisa_penalty": 3/13},
     "jfi_dominant":  {"morans_i": 2/10, "jains_index": 6/10, "lisa_penalty": 2/10},
     "spatial_dom":   {"morans_i": 4/10, "jains_index": 2/10, "lisa_penalty": 4/10},
-    "lisa_dominant":  {"morans_i": 2/10, "jains_index": 2/10, "lisa_penalty": 6/10},
+    "lisa_dominant": {"morans_i": 2/10, "jains_index": 2/10, "lisa_penalty": 6/10},
 }
 
 
-def recompute_composite(df: pd.DataFrame, weights: Dict[str, float]) -> pd.Series:
-    """Recompute composite scores from per-objective columns under new weights."""
-    n_spatial = 37  # typical TI4 6-player map
-    lisa_divisor = max(1, n_spatial * (n_spatial - 1))
+def _compute_normalized_terms(df: pd.DataFrame, n_spatial: int) -> Dict[str, pd.Series]:
+    """
+    Vectorized computation of the three normalized objective terms used by the
+    optimizer's composite — same formulation as
+    MultiObjectiveScore.raw_objective_terms() but operating on a DataFrame.
+
+    Returns a dict with three Series keyed by weight name:
+      morans_i      : one-sided hinge max(0, I − E[I]) where E[I] = morans_i_null(n_spatial).
+                      Earlier versions of this script used |I| here, which corresponds to a
+                      DIFFERENT scoring function: |I| symmetrically penalizes both positive
+                      and negative spatial autocorrelation, while the optimizer's hinge
+                      penalizes only positive autocorrelation (clustering) above the null
+                      and zeroes out negative autocorrelation (dispersion) — the explicit
+                      design goal stated in §3.1.
+      jains_index   : (1 − jains_index) — JFI gap, lower is better.
+      lisa_penalty  : LSAP / [n_spatial × (n_spatial − 1)] — bounded to [0, 1] per §3.1.
+
+    Args:
+        df: benchmark CSV rows with columns morans_i, jains_index, lisa_penalty.
+        n_spatial: |G| for the spatial graph the optimizer used. The benchmark CSV
+            does not currently carry this per-row, so it is supplied externally;
+            if it ever differs across rows of the same CSV, this function is
+            misapplied and the caller must guard upstream.
+    """
+    if n_spatial < SPATIAL_DEGENERATE_THRESHOLD:
+        zero = pd.Series(0.0, index=df.index)
+        return {
+            "morans_i":     zero,
+            "jains_index":  1.0 - df["jains_index"],
+            "lisa_penalty": zero,
+        }
+    e_i = morans_i_null(n_spatial)
+    return {
+        "morans_i":     (df["morans_i"] - e_i).clip(lower=0.0),
+        "jains_index":  1.0 - df["jains_index"],
+        "lisa_penalty": df["lisa_penalty"] / (n_spatial * (n_spatial - 1)),
+    }
+
+
+def recompute_composite(df: pd.DataFrame, weights: Dict[str, float], n_spatial: int) -> pd.Series:
+    """
+    Recompute composite scores from per-objective columns under new weights,
+    using the same formulation as MultiObjectiveScore.composite_score (one-sided
+    hinge for Moran's I; |G|-based LSAP normalization).
+
+    Earlier versions hardcoded n_spatial=37 (wrong; canonical 6p layout has
+    n_spatial=31) AND used |I| as the spatial penalty (wrong; methodology
+    specifies one-sided hinge). Both bugs corrupted absolute composite
+    magnitudes by ~700× compared to the optimizer's actual scoring; whether
+    they affected algorithm rankings (the τ-invariance result downstream)
+    is the question this re-run answers.
+    """
+    terms = _compute_normalized_terms(df, n_spatial)
     return (
-        weights["morans_i"]     * df["morans_i"].abs() +
-        weights["jains_index"]  * (1.0 - df["jains_index"]) +
-        weights["lisa_penalty"] * df["lisa_penalty"] / lisa_divisor
+        weights["morans_i"]     * terms["morans_i"] +
+        weights["jains_index"]  * terms["jains_index"] +
+        weights["lisa_penalty"] * terms["lisa_penalty"]
     )
 
 
 def weight_sensitivity_analysis(
-    df: pd.DataFrame, alpha: float = 0.05,
+    df: pd.DataFrame, alpha: float = 0.05, n_spatial: int = 31,
 ) -> pd.DataFrame:
     """
     For each weight configuration, recompute composite scores and re-run
@@ -487,7 +554,7 @@ def weight_sensitivity_analysis(
     rows = []
     for config_name, weights in WEIGHT_CONFIGS.items():
         df_copy = df.copy()
-        df_copy["composite_reweighted"] = recompute_composite(df_copy, weights)
+        df_copy["composite_reweighted"] = recompute_composite(df_copy, weights, n_spatial)
 
         wide = df_copy.pivot(
             index="seed", columns="algorithm", values="composite_reweighted"
@@ -536,6 +603,7 @@ def rank_stability_and_kendall(
     alpha: float,
     configs: Dict[str, Dict[str, float]],
     algo_order: List[str],
+    n_spatial: int = 31,
 ) -> Tuple[List[str], List[str]]:
     """
     From sensitivity results: (1) per-pair wins at p<alpha across configs (rank stability);
@@ -562,8 +630,6 @@ def rank_stability_and_kendall(
         )
 
     # ----- Kendall's tau: median composite rank per config, then tau between configs -----
-    n_spatial = 37
-    lisa_divisor = max(1, n_spatial * (n_spatial - 1))
     config_names = list(configs.keys())
     if len(config_names) < 2:
         return rank_lines, kendall_lines
@@ -572,7 +638,7 @@ def rank_stability_and_kendall(
     rank_vectors: Dict[str, np.ndarray] = {}
     for config_name, weights in configs.items():
         df_copy = df.copy()
-        df_copy["composite_reweighted"] = recompute_composite(df_copy, weights)
+        df_copy["composite_reweighted"] = recompute_composite(df_copy, weights, n_spatial)
         wide = df_copy.pivot(
             index="seed", columns="algorithm", values="composite_reweighted"
         )
@@ -584,9 +650,12 @@ def rank_stability_and_kendall(
         ranks = medians.rank(method="min").astype(int).values
         rank_vectors[config_name] = ranks
 
-    # Report tau for current_5_5_3 vs equal_1_1_1 (and optionally all pairs)
-    ref = "current_5_5_3"
-    other = "equal_1_1_1"
+    # Report tau for the manuscript's nominal weighting (equal_1_1_1) vs
+    # the legacy 5:5:3 weighting that earlier project iterations used.
+    # Both are guaranteed to exist in WEIGHT_CONFIGS; if either is removed
+    # the audit needs to be revisited.
+    ref = "equal_1_1_1"
+    other = "legacy_5_5_3"
     if ref in rank_vectors and other in rank_vectors:
         tau, p_tau = stats.kendalltau(rank_vectors[ref], rank_vectors[other])
         kendall_lines.append(
@@ -615,7 +684,7 @@ def rank_stability_and_kendall(
 # Multi-Jain ablation
 # ---------------------------------------------------------------------------
 
-def multi_jain_ablation(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+def multi_jain_ablation(df: pd.DataFrame, alpha: float = 0.05, n_spatial: int = 31) -> pd.DataFrame:
     """
     Compare Multi-Jain bottleneck (min) vs scalar JFI (max) to show that
     the bottleneck catches maps where one dimension is equitable but the
@@ -634,26 +703,36 @@ def multi_jain_ablation(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
     if len(algos) < 2:
         return pd.DataFrame()
 
-    n_spatial = 37
-    lisa_divisor = max(1, n_spatial * (n_spatial - 1))
-    w_jfi = 5 / 13
-    w_moran = 5 / 13
-    w_lisa = 3 / 13
-
+    # Use the manuscript's nominal 1:1:1 weighting (Methodology §3.1) for the
+    # bottleneck-vs-optimistic comparison. Earlier versions hardcoded 5:5:3
+    # weights here AND used |I| as the spatial penalty AND assumed n_spatial=37,
+    # all three of which diverged from the optimizer's actual scoring function.
+    # The structural fix: route through _compute_normalized_terms (one source).
+    weights = WEIGHT_CONFIGS["equal_1_1_1"]
     df_ab = df.copy()
     df_ab["jfi_bottleneck"] = df_ab[["jfi_resources", "jfi_influence"]].min(axis=1)
     df_ab["jfi_optimistic"] = df_ab[["jfi_resources", "jfi_influence"]].max(axis=1)
     df_ab["jfi_gap"] = df_ab["jfi_optimistic"] - df_ab["jfi_bottleneck"]
 
+    # Spatial penalty terms (hinge, lisa_norm) are independent of which JFI
+    # variant we use, so compute once and add the JFI-variant term directly.
+    if n_spatial < SPATIAL_DEGENERATE_THRESHOLD:
+        morans_hinge = pd.Series(0.0, index=df_ab.index)
+        lisa_norm = pd.Series(0.0, index=df_ab.index)
+    else:
+        e_i = morans_i_null(n_spatial)
+        morans_hinge = (df_ab["morans_i"] - e_i).clip(lower=0.0)
+        lisa_norm = df_ab["lisa_penalty"] / (n_spatial * (n_spatial - 1))
+
+    spatial_part = (
+        weights["morans_i"]     * morans_hinge +
+        weights["lisa_penalty"] * lisa_norm
+    )
     df_ab["score_bottleneck"] = (
-        w_moran * df_ab["morans_i"].abs() +
-        w_jfi * (1.0 - df_ab["jfi_bottleneck"]) +
-        w_lisa * df_ab["lisa_penalty"] / lisa_divisor
+        spatial_part + weights["jains_index"] * (1.0 - df_ab["jfi_bottleneck"])
     )
     df_ab["score_optimistic"] = (
-        w_moran * df_ab["morans_i"].abs() +
-        w_jfi * (1.0 - df_ab["jfi_optimistic"]) +
-        w_lisa * df_ab["lisa_penalty"] / lisa_divisor
+        spatial_part + weights["jains_index"] * (1.0 - df_ab["jfi_optimistic"])
     )
 
     rows = []
@@ -748,7 +827,7 @@ def main() -> int:
     # Weight sensitivity analysis
     if args.sensitivity:
         print("\n── Weight sensitivity analysis ──")
-        sens_df = weight_sensitivity_analysis(df, args.alpha)
+        sens_df = weight_sensitivity_analysis(df, args.alpha, args.n_spatial)
         if sens_df.empty:
             print("   Skipped (need ≥ 2 algorithms)")
         else:
@@ -783,7 +862,7 @@ def main() -> int:
 
             # Rank stability and Kendall's tau
             rank_lines, kendall_lines = rank_stability_and_kendall(
-                sens_df, df, args.alpha, WEIGHT_CONFIGS, ALGO_ORDER
+                sens_df, df, args.alpha, WEIGHT_CONFIGS, ALGO_ORDER, args.n_spatial,
             )
             if rank_lines or kendall_lines:
                 print("\n   Rank stability (wins at p<{:.2f} across weight configs):".format(args.alpha))
@@ -844,7 +923,7 @@ def main() -> int:
     # Multi-Jain ablation
     if args.ablation:
         print("\n── Multi-Jain ablation (bottleneck vs optimistic JFI) ──")
-        result = multi_jain_ablation(df, args.alpha)
+        result = multi_jain_ablation(df, args.alpha, args.n_spatial)
         if isinstance(result, tuple) and len(result) == 4:
             ab_df, rank_changes, total_seeds, gap_summary = result
             if not ab_df.empty:
