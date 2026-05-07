@@ -28,7 +28,7 @@ from typing import Tuple, List, Optional, Dict
 import numpy as np
 
 from .balance_engine import TI4Map, get_home_values, get_balance_gap, can_swap_system
-from .map_topology import MapTopology
+from .map_topology import MapTopology, morans_i_null
 from .fast_map_state import FastMapState
 from .objectives_smooth import smooth_min_jain, softplus_hinge, DEFAULT_JAIN_SMOOTH_P, DEFAULT_SOFTPLUS_K
 from ..data.map_structures import Evaluator, MapSpace
@@ -39,6 +39,12 @@ NORM_KEY_HINGE = 'morans_hinge'
 NORM_KEY_JFI = 'jfi_gap'
 NORM_KEY_LISA = 'lisa_norm'
 NORM_EPS = 1e-10
+
+# Threshold below which the spatial graph is too small for meaningful spatial
+# autocorrelation; spatial penalty terms (hinge, LSAP) gracefully degrade to
+# 0.0 here. Matches the n < 3 guards in FastMapState.morans_i() and
+# FastMapState.lisa_penalty().
+SPATIAL_DEGENERATE_THRESHOLD = 3
 
 
 class MultiObjectiveScore:
@@ -73,7 +79,16 @@ class MultiObjectiveScore:
         self.jfi_resources = jfi_resources
         self.jfi_influence = jfi_influence
         self.lisa_penalty = lisa_penalty
-        self.n_spatial = max(1, n_spatial)  # guard against zero-division
+        # Store n_spatial as-passed; do NOT clamp to 1 at construction.
+        # Earlier code applied `max(1, n_spatial)` here as a syntactic guard
+        # against zero-division in downstream `1 / (n - 1)` arithmetic, but
+        # that clamp silently corrupted spatial-penalty outputs on degenerate
+        # topologies (n_spatial in {0, 1, 2}): the floored divisor produced
+        # a spurious 1.0 hinge instead of the correct 0.0 graceful-degradation
+        # value. The fix is regime-aware guards at the four call sites that
+        # consume n_spatial (see SPATIAL_DEGENERATE_THRESHOLD usage below),
+        # not a syntactic clamp here.
+        self.n_spatial = n_spatial
         self.normalizer_sigma = normalizer_sigma
         self.use_smooth_objectives = use_smooth_objectives
         self.smooth_p = smooth_p
@@ -118,15 +133,26 @@ class MultiObjectiveScore:
         Weights sum to 1.0 (ratios 5 : 5 : 3 ≈ 0.385 : 0.385 : 0.231).
         """
         n = self.n_spatial
-        lisa_divisor = max(1, n * (n - 1))
-        lisa_norm = self.lisa_penalty / lisa_divisor
-        # Hinge: one-sided penalize I > E[I] = -1/(n-1). Smooth or hard.
-        hinge_raw = self.morans_i + 1.0 / max(1, n - 1)
+        # Regime guard: spatial penalty terms degrade gracefully to 0.0 on
+        # degenerate graphs (no tiles, isolated singleton, two-node).
+        # morans_i_null is not consulted in this branch; its strict contract
+        # (n >= 2) is honoured by the call-site guard.
+        if n < SPATIAL_DEGENERATE_THRESHOLD:
+            morans_hinge = 0.0
+            lisa_norm = 0.0
+        else:
+            lisa_norm = self.lisa_penalty / (n * (n - 1))
+            # hinge_raw = morans_i - E[I], where E[I] = -1/(n-1) so
+            # hinge_raw = morans_i - (-1/(n-1)) = morans_i + 1/(n-1).
+            hinge_raw = self.morans_i - morans_i_null(n)
+            if self.use_smooth_objectives:
+                morans_hinge = softplus_hinge(hinge_raw, self.smooth_k)
+            else:
+                morans_hinge = max(0.0, hinge_raw)
+
         if self.use_smooth_objectives:
-            morans_hinge = softplus_hinge(hinge_raw, self.smooth_k)
             jfi_term = 1.0 - smooth_min_jain(self.jfi_resources, self.jfi_influence, self.smooth_p)
         else:
-            morans_hinge = max(0.0, hinge_raw)
             jfi_term = 1.0 - self.jains_index
         # Optional Gen-0 variance normalization (stationary landscape).
         if self.normalizer_sigma:
@@ -148,9 +174,12 @@ class MultiObjectiveScore:
         Used for Gen-0 sigma computation. No smooth operators; no normalizer_sigma applied.
         """
         n = self.n_spatial
-        lisa_divisor = max(1, n * (n - 1))
-        lisa_norm = self.lisa_penalty / lisa_divisor
-        morans_hinge = max(0.0, self.morans_i + 1.0 / max(1, n - 1))
+        if n < SPATIAL_DEGENERATE_THRESHOLD:
+            morans_hinge = 0.0
+            lisa_norm = 0.0
+        else:
+            lisa_norm = self.lisa_penalty / (n * (n - 1))
+            morans_hinge = max(0.0, self.morans_i - morans_i_null(n))
         jfi_gap = 1.0 - self.jains_index
         return (morans_hinge, jfi_gap, lisa_norm)
 
@@ -160,13 +189,16 @@ class MultiObjectiveScore:
         Respects use_smooth_objectives so NSGA-II stays consistent with Track A composite.
         Returns (f1, f2, f3) = (JFI gap, Moran hinge term, LSAP).
         """
-        n = max(1, self.n_spatial - 1)
+        n = self.n_spatial
         if self.use_smooth_objectives:
             f1 = 1.0 - smooth_min_jain(self.jfi_resources, self.jfi_influence, self.smooth_p)
-            f2 = softplus_hinge(self.morans_i + 1.0 / n, self.smooth_k)
         else:
             f1 = 1.0 - self.jains_index
-            f2 = max(0.0, self.morans_i + 1.0 / n)
+        if n < SPATIAL_DEGENERATE_THRESHOLD:
+            f2 = 0.0
+        else:
+            hinge_raw = self.morans_i - morans_i_null(n)
+            f2 = softplus_hinge(hinge_raw, self.smooth_k) if self.use_smooth_objectives else max(0.0, hinge_raw)
         f3 = self.lisa_penalty
         return (f1, f2, f3)
 
@@ -198,24 +230,38 @@ class MultiObjectiveScore:
         """
         Pareto dominance over the canonical 3 objectives (all minimized).
         Uses same smooth/hard formulae as composite_score when use_smooth_objectives is set.
+        Spatial-penalty terms degrade to 0.0 on degenerate topologies
+        (n_spatial < SPATIAL_DEGENERATE_THRESHOLD) per the regime-aware
+        guard pattern documented in composite_score().
         """
-        n_self = max(1, self.n_spatial - 1)
-        n_other = max(1, other.n_spatial - 1)
         if self.use_smooth_objectives:
             a_jfi = 1.0 - smooth_min_jain(self.jfi_resources, self.jfi_influence, self.smooth_p)
             b_jfi = 1.0 - smooth_min_jain(other.jfi_resources, other.jfi_influence, other.smooth_p)
-            a_mi = softplus_hinge(self.morans_i + 1.0 / n_self, self.smooth_k)
-            b_mi = softplus_hinge(other.morans_i + 1.0 / n_other, other.smooth_k)
         else:
             a_jfi = 1.0 - self.jains_index
             b_jfi = 1.0 - other.jains_index
-            a_mi = max(0.0, self.morans_i + 1.0 / n_self)
-            b_mi = max(0.0, other.morans_i + 1.0 / n_other)
+
+        a_mi = self._morans_hinge_term()
+        b_mi = other._morans_hinge_term()
+
         a_lp = self.lisa_penalty
         b_lp = other.lisa_penalty
         all_leq = (a_jfi <= b_jfi) and (a_mi <= b_mi) and (a_lp <= b_lp)
         any_lt = (a_jfi < b_jfi) or (a_mi < b_mi) or (a_lp < b_lp)
         return all_leq and any_lt
+
+    def _morans_hinge_term(self) -> float:
+        """
+        Moran's I hinge: max(0, I − E[I]) on a non-degenerate graph,
+        else 0.0. Smooth or hard form depending on use_smooth_objectives.
+        Single helper consumed by composite_score and dominates so the
+        guard logic doesn't drift between scoring and Pareto comparison.
+        """
+        n = self.n_spatial
+        if n < SPATIAL_DEGENERATE_THRESHOLD:
+            return 0.0
+        hinge_raw = self.morans_i - morans_i_null(n)
+        return softplus_hinge(hinge_raw, self.smooth_k) if self.use_smooth_objectives else max(0.0, hinge_raw)
 
     def __str__(self) -> str:
         return (

@@ -24,6 +24,36 @@ if TYPE_CHECKING:
     from .balance_engine import TI4Map, can_swap_system
 
 
+def morans_i_null(n: int) -> float:
+    """
+    Analytical null expectation of Moran's I: E[I] = −1 / (n − 1).
+
+    Single-source helper for the formula, referenced by
+    MapTopology.morans_i_null_expectation (the canonical citation surface for
+    Methodology §3.3) AND by MultiObjectiveScore in spatial_optimizer.py
+    (which stores n_spatial as a scalar rather than a topology reference).
+    Defining it here means there is exactly one place this formula lives;
+    consumers in either layer cannot drift from each other.
+
+    Raises:
+        ValueError: if n < 2. The formula is undefined at n=1 (division by
+            zero) and meaningless at n=0 (no graph). Consumers facing
+            degenerate input must guard at the call site, typically with
+            `if n < SPATIAL_DEGENERATE_THRESHOLD: spatial_term = 0.0` —
+            silently returning a sentinel from this helper would
+            reintroduce the drift surface the helper exists to eliminate.
+    """
+    if n < 2:
+        raise ValueError(
+            f"Moran's I null expectation E[I] = -1/(n-1) is undefined for "
+            f"n = {n}; requires n >= 2. Callers handling degenerate spatial "
+            f"graphs must guard at the call site (e.g. `if topology.n_spatial "
+            f"< 3: spatial_penalty = 0.0`). Canonical 6p layout produces "
+            f"n_spatial = 31."
+        )
+    return -1.0 / (n - 1)
+
+
 @dataclass(frozen=True, eq=False)
 class MapTopology:
     """
@@ -98,6 +128,41 @@ class MapTopology:
     spatial_W_swappable: object = field(compare=False)  # scipy.sparse.csr_matrix (S_conn, S_conn)
     swappable_connected_s_pos: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))  # (S_conn,)
     degree_swappable: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))  # (S_conn,) degree k_i per node for LSAP sqrt(k_i) correction
+
+    # ── Canonical derived quantities (single source for §3.3 citations) ─
+    # Both properties are computed from spatial_W so they cannot drift
+    # from the runtime adjacency the metrics actually operate on. See
+    # docs/methodology/Methodology_Section.md §3.3 for the formal G
+    # declaration. Consumers that need to handle small graphs (n_spatial
+    # < 3) MUST guard at the call site before reading
+    # morans_i_null_expectation; the property's contract is strict on
+    # its mathematical regime (n >= 2).
+
+    @property
+    def n_spatial(self) -> int:
+        """
+        Number of nodes in the spatial graph G.
+
+        Equal to spatial_W.shape[0] by construction; always well-defined
+        (returns 0 for an empty topology). For the canonical 6p layout
+        this is 31 (37 board hexes − 6 home tiles, after zero-degree
+        purge of nodes isolated by impassable-edge excision).
+        """
+        return int(self.spatial_W.shape[0])
+
+    @property
+    def morans_i_null_expectation(self) -> float:
+        """
+        Analytical null expectation E[I] = −1 / (|G| − 1) under no spatial
+        association, as cited in Methodology §3.3.
+
+        Delegates to module-level morans_i_null(n) so the formula has a
+        single source shared with consumers in spatial_optimizer.py that
+        only have access to n_spatial as a scalar.
+
+        Raises ValueError for n_spatial < 2 (see morans_i_null docstring).
+        """
+        return morans_i_null(self.n_spatial)
 
     @classmethod
     def from_ti4_map(cls, ti4_map: 'TI4Map', evaluator: Evaluator) -> 'MapTopology':
@@ -247,6 +312,18 @@ class MapTopology:
         spatial_projection = spatial_projection[keep_inds, :]
         W_kept = W_raw[keep_inds, :][:, keep_inds]
         N_sys = len(spatial_indices)
+        # Postcondition: the zero-degree purge produces either an empty graph
+        # (no system tiles, or all isolated by impassable-edge excision) or a
+        # graph with at least two connected nodes. n_spatial = 1 is unreachable
+        # because a singleton has no neighbors and is purged. This assertion
+        # enforces the invariant the morans_i_null_expectation property relies
+        # on for its n < 2 precondition.
+        assert N_sys == 0 or N_sys >= 2, (
+            f"MapTopology invariant violated: n_spatial = {N_sys} after "
+            f"zero-degree purge. Expected n in {{0}} ∪ {{≥2}}; n=1 should be "
+            f"unreachable from from_ti4_map (a singleton has no neighbors and "
+            f"is purged). Check the purge step at map_topology.py."
+        )
         row_sums_kept = np.array(W_kept.sum(axis=1)).flatten()
         # After purge, no zero rows remain.
         spatial_W = scipy.sparse.diags(1.0 / row_sums_kept) @ W_kept
