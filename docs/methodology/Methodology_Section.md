@@ -24,7 +24,7 @@ Given the lack of consensus on optimal weighting for composite spatial indicator
 To resolve the mathematical heteroskedasticity inherent in the raw objectives, the engine strictly decouples *normalization* (unit equalization) from *weighting* (strategic preference). At initialization, the system samples $N=1,000$ uniformly random map configurations from the underlying permutation state space ($37! \approx 1.37 \times 10^{43}$) to compute the empirical standard deviation ($\sigma$) of each objective. These Gen-0 static $\sigma$ values are not arbitrary, human-chosen scalars; they are exact empirical properties of the unoptimized problem domain.  
 Dividing each term by its Gen-0 $\sigma$ converts the objectives into comparable standard-deviation units (Z-score analogues). Without this conversion, the Moran's I hinge term—which accounts for approximately $92\%$ of empirical variance at Gen-0—effectively dictates the gradient, reducing the search to a single-objective spatial optimizer. Gen-0 normalization forces dimensional parity. Consequently, the assigned weight vector (e.g., 1:1:1 or sensitivity variants) rigorously governs the relative importance of the objectives in the gradient calculation, ensuring the composite behaves mathematically as intended.
 
-All three terms are normalized to $[0, 1]$ before weighting: $(1 - J_{\min}) \in [0,1]$, $\max(0,\ I - \mathbb{E}[I]) \in \left[0,\ 1 + \tfrac{1}{n-1}\right] \approx [0, 1.028]$ for $n=37$ (effectively bounded at 1 for all observed map configurations), and $\text{LSAP}/[n(n-1)] \in [0,1]$. The divisor $n(n-1)$ is the theoretical maximum of the sum of positive variance-normalized local Moran's I values under row-standardized $\mathbf{W}$. Balance gap (max − min player value) is retained as a display attribute but is excluded from the composite score and all Pareto dominance calculations.
+All three terms are normalized to $[0, 1]$ before weighting: $(1 - J_{\min}) \in [0,1]$, $\max(0,\ I - \mathbb{E}[I]) \in \left[0,\ 1 + \tfrac{1}{|G|-1}\right] \approx [0, 1.033]$ for $|G|=31$ (effectively bounded at 1 for all observed map configurations), and $\text{LSAP}/[|G|(|G|-1)] \in [0,1]$. The divisor $|G|(|G|-1)$ is the theoretical maximum of the sum of positive variance-normalized local Moran's I values under row-standardized $\mathbf{W}$. Balance gap (max − min player value) is retained as a display attribute but is excluded from the composite score and all Pareto dominance calculations.
 
 ---
 
@@ -50,25 +50,35 @@ Source: `scripts/distance_weight_sensitivity.py` (per-config and pairwise τ in 
 
 $\text{gap} = \max(\mathbf{v}) - \min(\mathbf{v})$ where $\mathbf{v}$ is the per-player distance-weighted value. Retained for display only; excluded from composite and Pareto dominance.
 
+### The spatial graph $G$
+
+All spatial-autocorrelation metrics in this study — the optimizer's in-loop global Moran's I and LSAP, and the post-hoc conditional-permutation LISA in `scripts/validate_lisa_proxy.py` — operate on the same spatial graph $G$, defined as follows. Take the set of map spaces of type SYSTEM with non-None systems (this excludes the 6 home tiles by space type, and any empty hex positions). Construct adjacency from hex contiguity, including wormhole connections, but **excise edges through impassable systems** (Supernova) so that spatial proximity reflects navigable rather than purely geometric adjacency. Finally, **purge nodes left zero-degree** by that excision (typically a Supernova that ends up isolated). The result is the row-standardized adjacency $\mathbf{W}$ over $|G|$ surviving nodes; rows sum to 1.0 by construction.
+
+For the canonical 6-player layout used in this study, $|G| = 31$ across all runs (37 hex positions − 6 home tiles − 0 zero-degree purges; verified in `output/saturation_20260314_205919/lisa_validation_20260316_100413/validation_results.csv`, where `n_positions = 31` for all 120 maps). Implementation: [`src/ti4_analysis/algorithms/map_topology.py`](src/ti4_analysis/algorithms/map_topology.py).
+
+> **Optimizer–validator alignment.** Both `FastMapState.morans_i()`/`lisa_penalty()` and `validate_lisa_proxy.py:conditional_permutation_lisa()` source `z` from `FastMapState.spatial_values()` and $\mathbf{W}$ from `MapTopology.spatial_W` — the same $|G| = 31$ graph. The Goodhart-style failure mode (heuristic optimized on one graph, significance assessed on another) is structurally precluded by this shared dependency. The auxiliary `morans_i_swappable()` over the swappable-connected subgraph is reported but not used in primary results.
+
 ### Moran's I
 
 Global spatial autocorrelation:
 
-$$I = \frac{N}{W} \cdot \frac{\sum_i \sum_j w_{ij}(x_i - \bar{x})(x_j - \bar{x})}{\sum_i (x_i - \bar{x})^2}$$
+$$I = \frac{|G|}{W} \cdot \frac{\sum_i \sum_j w_{ij}(x_i - \bar{x})(x_j - \bar{x})}{\sum_i (x_i - \bar{x})^2}$$
 
-Under the null of no spatial association, $E[I] = -1/(N-1)$. For the TI4 map, $N = 37$ swappable systems, so $E[I] \approx -0.027$. Interpretation: $I > E[I]$ positive autocorrelation; $I \approx E[I]$ spatial randomness; $I < E[I]$ negative autocorrelation.
+Under the null of no spatial association, $E[I] = -1/(|G|-1)$. For the canonical layout with $|G| = 31$, $E[I] = -1/30 \approx -0.033$. Interpretation: $I > E[I]$ positive autocorrelation; $I \approx E[I]$ spatial randomness; $I < E[I]$ negative autocorrelation. The 21 of 12,000 (0.17%) optimized solutions producing $I$ marginally below $-1.0$ are discussed in [`docs/limitations/limitations.md`](docs/limitations/limitations.md); they reflect the known property of asymmetric row-standardized $\mathbf{W}$ on small irregular graphs (de Jong, Sprenger & van Veen, 1984) and do not affect any reported median, IQR, or Wilcoxon outcome.
 
 ### Spatial weights matrix and edge effects
 
-Standard spatial statistics (e.g. Moran's I) are often derived under infinite or wrapped domains. On a small, bounded hex grid ($N = 37$), edge hexes have fewer neighbours than interior ones, which can bias global and local autocorrelation (Boots and Tiefelsdorf, 2000). We use **binary adjacency weights**, **row-standardized** so that each row of $\mathbf{W}$ sums to 1.0 — the standard approach to mitigate edge-effect bias in bounded tessellations (Boots and Tiefelsdorf, 2000). After standardization, the spatial lag $(\mathbf{W}\mathbf{z})_i$ at each position is a proper weighted average of its neighbours regardless of neighbour count, ensuring that edge systems are not artificially penalized or advantaged. Zero-sum rows (isolated hexes) are guarded by substituting a denominator of 1.0. We do not apply a separate edge-correction penalty. Implementation: `src/ti4_analysis/algorithms/map_topology.py`.
+Standard spatial statistics are often derived under infinite or wrapped domains. On a small, bounded hex grid with $|G| = 31$, edge nodes have fewer neighbours than interior ones, which can bias global and local autocorrelation (Boots and Tiefelsdorf, 2000). The row-standardization defined above — each row of $\mathbf{W}$ sums to 1.0 — is the standard approach to mitigate edge-effect bias in bounded tessellations (Boots and Tiefelsdorf, 2000). After standardization, the spatial lag $(\mathbf{W}\mathbf{z})_i$ at each position is a proper weighted average of its neighbours regardless of neighbour count, ensuring that edge systems are not artificially penalized or advantaged. We do not apply a separate edge-correction penalty.
 
 ### Local Spatial Autocorrelation Penalty (LSAP)
 
-The LSAP is a variance-normalized local spatial penalty that proxies significance-tested LISA (Anselin, 1995). For each system $i$:
+The LSAP is a variance-normalized local spatial penalty that proxies significance-tested LISA (Anselin, 1995). For each node $i \in G$:
 
-$$I_i = \frac{(x_i - \bar{x}) \sum_j w_{ij}(x_j - \bar{x})}{m_2}, \quad m_2 = \frac{\sum(x_i - \bar{x})^2}{n}$$
+$$I_i = \frac{(x_i - \bar{x}) \sum_j w_{ij}(x_j - \bar{x})}{m_2}, \quad m_2 = \frac{\sum_{i \in G}(x_i - \bar{x})^2}{|G|}$$
 
-Positive $I_i$ identifies H-H and L-L clusters. LSAP sums only the positive local values. The composite normalizes by $n(n-1)$; this bound holds because $\mathbf{W}$ is row-standardized. The LSAP serves as a **continuous heuristic** in the optimization loop (permutation LISA would be prohibitively expensive); post-hoc validation via conditional-permutation LISA (e.g. 9,999 permutations per location, FDR Benjamini–Hochberg) confirms that minimising the proxy reduces statistically significant clusters. We omit Getis-Ord $G_i^*$ from the methodology because at $N \approx 37$ its asymptotic z-score is unreliable and because LISA/LSAP are better suited to detecting spatial outliers; significance is assessed only via conditional permutation LISA.
+Positive $I_i$ identifies H-H and L-L clusters. LSAP sums only the positive local values. The composite normalizes by $|G|(|G|-1)$, which bounds LSAP $\in [0, 1]$ because $\mathbf{W}$ is row-standardized. The LSAP serves as a **continuous heuristic** in the optimization loop (permutation LISA would be prohibitively expensive at $\sim 10^5$ evaluations per seed × 9,999 permutations × $|G|$ locations); post-hoc inferential significance is delivered by `scripts/validate_lisa_proxy.py`, which on the same graph $G$ runs 9,999-permutation conditional LISA and applies Benjamini–Hochberg FDR correction at $q < 0.05$ per-map across the $|G| = 31$ locations (Caldas de Castro & Singer, 2006). The proxy–target relationship is empirically diagnosed in `scripts/lisa_proxy_per_map_diagnostic.py`; see [`docs/limitations/lsap-proxy-goodhart.md`](docs/limitations/lsap-proxy-goodhart.md) for the validated three-test defence.
+
+We omit Getis-Ord $G_i^*$ from the methodology because at $|G| = 31$ its asymptotic z-score is unreliable, and because LISA/LSAP with conditional-permutation inference are better suited to detecting spatial outliers; significance is claimed only via conditional permutation LISA.
 
 ### Multi-Jain Fairness Index (Bottleneck JFI)
 

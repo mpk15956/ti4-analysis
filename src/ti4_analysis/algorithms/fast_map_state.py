@@ -239,10 +239,17 @@ class FastMapState:
         sampling noise under spatial randomness rather than genuine clustering.
 
         Mathematical grounding of τ = 0.05:
-            The analytical null expectation is E[Iᵢ] = −1/(n−1).
-            For n = 37 swappable tiles: E[Iᵢ] ≈ −0.028.
-            τ = 0.05 therefore exceeds |E[Iᵢ]| ≈ 0.028, placing the noise
-            floor above the analytical null magnitude.
+            The analytical null expectation is E[Iᵢ] = −1/(n−1), where n is
+            the size of the spatial graph the metric operates on — i.e.,
+            topology.spatial_W.shape[0]. For the canonical 6-player layout,
+            that graph has n = 31 (37 hex positions minus the 6 frozen home
+            tiles, with zero-degree purge after impassable-edge excision),
+            giving E[Iᵢ] ≈ −0.033. τ = 0.05 therefore exceeds |E[Iᵢ]|,
+            placing the noise floor above the analytical null magnitude.
+            (Earlier docstrings here cited "n = 37 swappable tiles"; that
+            conflated the geometric hex count with the spatial-graph N and
+            mislabeled non-swappable systems as swappable. See methodology
+            §3.3 for the canonical declaration of G.)
 
         IMPORTANT — τ is an empirical noise-floor heuristic, NOT the formal
         statistical expectation under H₀.  Var[Iᵢ] under H₀ depends on the
