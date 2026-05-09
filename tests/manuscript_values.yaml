@@ -1,0 +1,181 @@
+# Manuscript values manifest. STUB AGAINST LEGACY ARTIFACTS — May 2026.
+#
+# This file enumerates every numerical value cited in the manuscript that is
+# derived from a CSV/JSON/JSON artifact, paired with its source artifact and a
+# verifier function in tests/test_manuscript_values.py. The validator runs
+# four passes:
+#
+#   1. Schema + anchor resolution (Tier 2 entries' section_anchor must
+#      resolve to exactly one section header in the target file).
+#   2. Collision detection: no two non-regex entries may render the same
+#      token within the same (file, section_anchor) scope.
+#   3. Existence: each entry's rendered value must appear ≥ min_count times
+#      in the target file/section/regex-window.
+#   4. Artifact provenance: each entry's verifier function reads the source
+#      artifact and confirms the manifest's raw_value matches.
+#
+# WHY THIS IS A STUB. Five entries; the canonical re-run is in flight. Once
+# Phase 0/1/5 canonical artifacts land, this file is replaced wholesale with
+# ~25-30 entries against the canonical CSVs. The current entries exercise
+# every validator path against legacy artifacts so the validator is
+# pressure-tested before canonical authoring begins.
+#
+# ENTRY SCHEMA:
+#   key:               stable identifier (used in failure messages)
+#   raw_value:         the value as extracted from the source artifact (full precision)
+#   format:            Python format string (raw_value -> rendered_value)
+#   files:             list of files where rendered_value must appear
+#   match:             "token" (Tier 1), "section" (Tier 2), or "regex" (Tier 3)
+#   section_anchor:    [Tier 2 only] section number ("3.2", "3.4.4") of the target section
+#   pattern:           [Tier 3 only] explicit regex; rendered_value not used for match
+#   source_artifact:   path or descriptor of where raw_value came from (provenance, for messages)
+#   verifier:          name of registered verifier function (Pass 4)
+#   min_count:         minimum occurrences required in scope (default 1; ≥2 for cross-cite redundancy)
+
+entries:
+
+  # ── Tier 1: numeric token, multi-occurrence in one file ──
+  # |G| = 31 appears repeatedly in §3.3 and §3.4 of Methodology_Section.md.
+  # min_count=5 allows for natural redundancy without being so loose that
+  # a wholesale removal of the metric definition goes undetected.
+  - key: g_size_canonical_6p
+    raw_value: 31
+    format: "{}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: src/ti4_analysis/algorithms/map_topology.py (MapTopology.n_spatial via _canonical_6p_topology fixture)
+    verifier: g_size_from_canonical_topology
+    min_count: 5
+
+  # ── Tier 1 with min_count=2: cross-section structural redundancy ──
+  # The 90% Moran-share at Gen-0 is cited in BOTH §3.1 (the variance-dominance
+  # argument) and §3.4.4 (the canonical-formulation justification). Either
+  # reference dropping is a real edit; min_count=2 makes the structural
+  # coherence assertable. Format renders raw_value=90 to literal "90\%"
+  # (LaTeX-escaped percent in the manuscript prose).
+  - key: gen0_moran_share_pct
+    raw_value: 90
+    format: "{}\\%"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/verify_pixi_apptainer_20260506_205045/variance_equalization_20260506_224438.csv
+    verifier: gen0_moran_share_under_1_1_1
+    min_count: 2
+
+  # ── Tier 2: section-anchored ──
+  # Distance-weight τ = 1.000 lives in §3.2's claim that algorithm rankings
+  # are weight-invariant. Anchoring to §3.2 prevents collision with a
+  # hypothetical other "1.000" elsewhere in the manuscript.
+  - key: distance_weight_kendall_tau
+    raw_value: 1.000
+    format: "{:.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.2"
+    source_artifact: output/saturation_20260314_205919/dist_sensitivity_20260316_100535/sensitivity_report.txt
+    verifier: distance_weight_tau_from_sensitivity_report
+    min_count: 1
+
+  # ── Tier 3: explicit regex ──
+  # Goodhart ρ from the LISA proxy validation, α=0.05 saturated target.
+  # The regex anchors to the LaTeX "$\rho = -0.025$" form found in both the
+  # goodhart doc and limitations.md (after the May 2026 reframe). The token
+  # "-0.025" might collide with other rounded values, so Tier 3 is the safer
+  # choice. files spans both manuscript-active locations the value appears in.
+  - key: goodhart_rho_alpha05_legacy
+    raw_value: -0.024859
+    format: "{:+.3f}"
+    files:
+      - docs/limitations/lsap-proxy-goodhart.md
+      - docs/limitations/limitations.md
+    match: regex
+    pattern: '\\rho\s*=\s*-0\.025'
+    source_artifact: output/saturation_20260314_205919/lisa_validation_20260316_100413/proxy_validation_summary.json
+    verifier: goodhart_rho_alpha05_from_summary_json
+    min_count: 1
+
+  # ── Tier 1: Goodhart ρ under FDR-corrected target ──
+  # The "+0.189" rendered token is unique enough across both files for Tier 1;
+  # if a future addition introduces another "+0.189", the validator's collision
+  # check will flag it and we escalate to Tier 3.
+  - key: goodhart_rho_fdr
+    raw_value: 0.18899593802830467
+    format: "{:+.3f}"
+    files:
+      - docs/limitations/lsap-proxy-goodhart.md
+      - docs/limitations/limitations.md
+    match: token
+    source_artifact: output/saturation_20260314_205919/lisa_validation_20260316_100413/lisa_proxy_per_map_diagnostic.json
+    verifier: goodhart_rho_fdr_from_diagnostic
+    min_count: 1
+
+  # ── Tier 1: Threshold-sensitivity Kendall τ ──
+  # Cited in both lsap-proxy-goodhart.md and limitations.md as the
+  # ranking-preservation defence value. Token "0.949" is sufficiently
+  # specific; same collision-escalation policy as goodhart_rho_fdr.
+  - key: lsap_threshold_kendall_tau
+    raw_value: 0.949388
+    format: "{:.3f}"
+    files:
+      - docs/limitations/lsap-proxy-goodhart.md
+      - docs/limitations/limitations.md
+    match: token
+    source_artifact: output/saturation_20260314_205919/lsap_threshold_20260316_194325/lsap_threshold_summary.json
+    verifier: lsap_threshold_tau_from_summary_json
+    min_count: 1
+
+  # ── §3.8 convergence variance shares (post-fix May 6 CSV; on-disk artifact) ──
+  # Both rounded to integer percent. Renders to "56\%" and "44\%" with the
+  # LaTeX-escaped percent literal. Same source CSV as gen0_moran_share_pct.
+
+  - key: convergence_lsap_share_pct
+    raw_value: 56
+    format: "{}\\%"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/verify_pixi_apptainer_20260506_205045/variance_equalization_20260506_224438.csv
+    verifier: convergence_lsap_share_under_1_1_1
+    min_count: 1
+
+  - key: convergence_jfi_share_pct
+    raw_value: 44
+    format: "{}\\%"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/verify_pixi_apptainer_20260506_205045/variance_equalization_20260506_224438.csv
+    verifier: convergence_jfi_share_under_1_1_1
+    min_count: 1
+
+  # ── §3.7 Phase 0 SA tuning canonical numbers — DELIBERATELY OMITTED ──
+  # When canonical Phase 0 lands at output/paper1_canonical_*/optuna_*/best_params.json,
+  # FOUR entries get added here: phase0_sa_cv_mean, phase0_sa_cv_std,
+  # phase0_sa_held_out_mean, phase0_sa_held_out_std — each with a verifier
+  # function that reads best_params.json and asserts raw_value matches.
+  # Per the May 2026 manuscript-values discussion, we do NOT pre-author these
+  # entries with `verifier: null` because that pattern silently weakens the
+  # gate's guarantee: a green gate covering verifier-null entries asserts
+  # only "verified-or-stubbed", not "verified-only", which a future reader
+  # could misinterpret. The manuscript's §3.7(B) prose carries
+  # PENDING_CANONICAL_PHASE_0 placeholder markers that the pre-submission
+  # gate's placeholder regex catches; the gate fires red until both the
+  # prose and the manifest are filled in together when canonical lands.
+
+  # ── DELIBERATELY-BROKEN EXAMPLE (commented out) ──
+  # Uncomment to see the failure message. Demonstrates: anchor resolves to 0
+  # sections in target file. The validator catches this in Pass 1 with:
+  #   "[broken_anchor_example] anchor 'Frobnicator' resolves to 0 sections in
+  #    docs/methodology/Methodology_Section.md; available: ['3.1', '3.10', ...]"
+  # - key: broken_anchor_example
+  #   raw_value: 42
+  #   format: "{}"
+  #   files: [docs/methodology/Methodology_Section.md]
+  #   match: section
+  #   section_anchor: "Frobnicator"
+  #   source_artifact: nonexistent
+  #   verifier: never_called
+  #   min_count: 1

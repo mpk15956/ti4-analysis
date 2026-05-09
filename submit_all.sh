@@ -81,14 +81,20 @@ except ImportError:
 echo "============================================================"
 
 # ── Phase 0: SA hyperparameter tuning (required before Phase 1) ─────────────
+# --corrected-landscape: tune SA against the canonical (smooth + Gen-0 σ +
+# √k-LSAP) objective so Phase 1's hyperparameters match the objective Phase 1
+# evaluates. Without this flag SA was tuned against the legacy uncorrected
+# landscape, leaving Phase 1 with hyperparameters miscalibrated for its
+# actual objective — the May 2026 audit's smoking gun for cross-phase drift.
 echo ""
-echo "--- Phase 0: SA hyperparameter tuning (${TUNING_TRIALS} trials, seeds ${TUNING_BASE_SEED}+) ---"
+echo "--- Phase 0: SA hyperparameter tuning (${TUNING_TRIALS} trials, seeds ${TUNING_BASE_SEED}+, corrected landscape) ---"
 $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --algo sa \
     --trials "$TUNING_TRIALS" \
     --eval-seeds "$TUNING_SEEDS" \
     --base-seed "$TUNING_BASE_SEED" \
     --players "$PLAYERS" \
+    --corrected-landscape \
     --output-dir "$OUTPUT_DIR"
 
 echo ""
@@ -235,8 +241,12 @@ $PYTHON_BIN scripts/validate_lisa_proxy.py \
     --output-dir "$OUTPUT_DIR"
 
 # ── Phase 5: Distance-Weight Sensitivity Analysis ────────────────────────────
+# --corrected-landscape: measure τ stability of the canonical objective,
+# not the legacy uncorrected one. The methodology section claims algorithm
+# rankings are weight-invariant under the canonical formulation, so the test
+# must run under it.
 echo ""
-echo "--- Phase 5: Distance-weight sensitivity (${DIST_SENSITIVITY_SEEDS} seeds, ${WORKERS} workers) ---"
+echo "--- Phase 5: Distance-weight sensitivity (${DIST_SENSITIVITY_SEEDS} seeds, ${WORKERS} workers, corrected landscape) ---"
 $PYTHON_BIN scripts/distance_weight_sensitivity.py \
     --seeds "$DIST_SENSITIVITY_SEEDS" \
     --budget "$DIST_SENSITIVITY_BUDGET" \
@@ -247,6 +257,7 @@ $PYTHON_BIN scripts/distance_weight_sensitivity.py \
     --sga-blob "$SGA_BLOB" \
     --sga-mut "$SGA_MUT" \
     --sga-warm "$SGA_WARM" \
+    --corrected-landscape \
     --output-dir "$OUTPUT_DIR"
 
 # ── Phase 6: Track B Quality Indicators (NSGA-II Pareto fronts) ──────────────

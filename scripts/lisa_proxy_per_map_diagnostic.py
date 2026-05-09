@@ -194,7 +194,7 @@ def main():
     print(f"  Discrimination AUC (FDR-significant vs zero): {auc_fdr if auc_fdr is not None else 'NA':>6}")
     print(f"  Convergence floor (frac maps with 0 FDR-sig): {pct_zero:.1f}%")
     print()
-    print(f"  Frame for §3.7/limitations: After SA convergence, {pct_zero:.0f}% of optimized")
+    print(f"  Frame for §3.8/limitations: After SA convergence, {pct_zero:.0f}% of optimized")
     print(f"  maps already have zero FDR-significant LISA clusters, leaving the per-map")
     print(f"  continuous correlation test on a near-degenerate distribution. The")
     print(f"  operationally relevant tests (uncorrected α=0.05 cluster count discrimination,")

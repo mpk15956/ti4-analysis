@@ -154,28 +154,28 @@ def _make_synthetic_topology(n: int) -> MapTopology:
     tests rely on.
     """
     if n == 0:
-        W = scipy.sparse.csr_matrix((0, 0), dtype=np.float32)
+        W = scipy.sparse.csr_matrix((0, 0), dtype=np.float64)
     else:
         # Row-stochastic ring: every node has one outgoing edge. Trivial
         # structure, valid spatial_W shape, irrelevant adjacency for the
         # property tests (they read shape only).
         rows = np.arange(n)
         cols = (rows + 1) % n
-        data = np.ones(n, dtype=np.float32)
-        W = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32)
+        data = np.ones(n, dtype=np.float64)
+        W = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float64)
 
     return MapTopology(
         home_indices=np.array([], dtype=np.int32),
         swappable_indices=np.array([], dtype=np.int32),
-        static_home_values=np.array([], dtype=np.float32),
-        static_home_resources=np.array([], dtype=np.float32),
-        static_home_influence=np.array([], dtype=np.float32),
-        dynamic_weight_matrix=np.zeros((0, 0), dtype=np.float32),
+        static_home_values=np.array([], dtype=np.float64),
+        static_home_resources=np.array([], dtype=np.float64),
+        static_home_influence=np.array([], dtype=np.float64),
+        dynamic_weight_matrix=np.zeros((0, 0), dtype=np.float64),
         spatial_indices=np.zeros(n, dtype=np.int32),
-        spatial_static_values=np.zeros(n, dtype=np.float32),
-        spatial_projection=scipy.sparse.csr_matrix((n, 0), dtype=np.float32),
+        spatial_static_values=np.zeros(n, dtype=np.float64),
+        spatial_projection=scipy.sparse.csr_matrix((n, 0), dtype=np.float64),
         spatial_W=W,
-        spatial_W_swappable=scipy.sparse.csr_matrix((0, 0), dtype=np.float32),
+        spatial_W_swappable=scipy.sparse.csr_matrix((0, 0), dtype=np.float64),
     )
 
 

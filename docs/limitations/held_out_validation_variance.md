@@ -28,7 +28,7 @@ We are doing **combinatorial optimization**, not supervised learning. The narrat
 
 ## Where this is written in the paper
 
-The full narrative for the manuscript is in **Methodology §3.6 (Hyperparameter validation and held-out variance)** in `docs/methodology/Methodology_Section.md`. Use the same A/B/C structure there; this document is an internal note.
+The full narrative for the manuscript is in **Methodology §3.7 (Hyperparameter validation and held-out variance)** in `docs/methodology/Methodology_Section.md`. Use the same A/B/C structure there; this document is an internal note.
 
 ## Data source for numbers
 
@@ -43,7 +43,7 @@ read the output directory (e.g. `output/optuna_YYYYMMDD_HHMMSS/best_params.json`
 - `cv_mean`, `cv_std` — cross-validation summary
 - `held_out_mean`, `held_out_std` — held-out validation summary
 
-Use these values in §3.6 and in the Response to Reviewers (template entry #4). Replace the placeholders in the methodology (e.g. "0.0545 ± 0.0028" and "0.0599 ± 0.0299") with your actual numbers.
+Use these values in §3.7 and in the Response to Reviewers (template entry #4). Replace the placeholders in the methodology (e.g. "0.0545 ± 0.0028" and "0.0599 ± 0.0299") with your actual numbers.
 
 ## Implementation reference
 

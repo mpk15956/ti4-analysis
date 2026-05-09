@@ -33,7 +33,7 @@ looks like reporting.
 
 ## Stakes
 
-- The §3.7 manuscript prose was about to cite the diagnostic's "92%
+- The §3.8 manuscript prose was about to cite the diagnostic's "92%
   Moran-share" verdict. That number is by definition a *weighted* share;
   citing a 5:5:3-weighted share in a 1:1:1 paper is exactly the unit
   mismatch a careful reviewer catches — and an uncareful reviewer doesn't,
@@ -64,11 +64,11 @@ Two qualitative shifts:
 1. **Gen-0 hinge dominance moves 92% → 90%.** Two-regime story unchanged:
    one term dominates Markov-chain acceptance dynamics early.
 2. **Convergence largest-share term flips from `jfi_gap` to `lisa_norm`.**
-   The §3.7 prose pointing at "no single term dominates, largest share is
+   The §3.8 prose pointing at "no single term dominates, largest share is
    X" must now use `lisa_norm`, not `jfi_gap`. This is the substantive
    sentence-level change in the manuscript that the audit produces.
 
-The two-regime principle for §3.7 framing (cite Gen-0 dominance AND
+The two-regime principle for §3.8 framing (cite Gen-0 dominance AND
 convergence collapse together) survives intact — the σ-shift table
 (0.138→0.000, 0.007→0.002, 0.008→0.003) is the same robust story under
 either weighting.
@@ -114,7 +114,7 @@ Both have `weight_label` columns; the after-CSV's column says `1:1:1`,
 the before-CSV doesn't have the column at all (the schema upgrade is part
 of the fix).
 
-## What this leaves available for §3.7 prose
+## What this leaves available for §3.8 prose
 
 The corrected after-CSV is the canonical citation target. Suggested
 manuscript wording:

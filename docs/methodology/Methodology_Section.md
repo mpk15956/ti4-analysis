@@ -6,7 +6,7 @@
 
 ## 3.1 Problem Formulation
 
-> **Evaluation hierarchy:** Primary evaluation uses weight-independent Pareto quality indicators (Hypervolume, IGD+); the scalar weighted-sum composite serves as a secondary benchmark for single-objective comparators only. See §3.7 for Track A/B definitions.
+> **Evaluation hierarchy:** Primary evaluation uses weight-independent Pareto quality indicators (Hypervolume, IGD+); the scalar weighted-sum composite serves as a secondary benchmark for single-objective comparators only. See §3.8 for Track A/B definitions.
 
 Anomaly tiles (asteroid fields, supernovae, nebulae, gravity rifts) are assigned under a non-adjacency constraint and frozen during optimization; all algorithms operate exclusively on the blue system tile swapping problem.
 
@@ -18,11 +18,11 @@ The one-sided hinge penalizes only positive spatial autocorrelation above the nu
 
 In the above, $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This formulation is theoretically inspired by the bottleneck intuition in multi-resource allocation (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension; we do not claim the formal DRF axioms, which apply to allocation mechanisms, not fixed topologies.
 
-Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use **equal weights 1:1:1** ($w_1 = w_2 = w_3 = 1/3$) for the full composite — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation for the main experiment is condition comparison (spatial profile, JFI parity); weight-independent Pareto indicators (HV, IGD+) support methods justification; see §3.7 and Design_Rationale.md. **Weight-sensitivity analysis** (e.g. `analyze_benchmark.py --sensitivity`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations around 1:1:1. When superiority holds across configurations, the equal-weight choice is academically defensible. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
+Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use **equal weights 1:1:1** ($w_1 = w_2 = w_3 = 1/3$) for the full composite — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation for the main experiment is condition comparison (spatial profile, JFI parity); weight-independent Pareto indicators (HV, IGD+) support methods justification; see §3.8 and Design_Rationale.md. **Weight-sensitivity analysis** (e.g. `analyze_benchmark.py --sensitivity`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations around 1:1:1. When superiority holds across configurations, the equal-weight choice is academically defensible. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
 
 **Normalization vs. Weighting (Gen-0 Standardization)**  
 To resolve the mathematical heteroskedasticity inherent in the raw objectives, the engine strictly decouples *normalization* (unit equalization) from *weighting* (strategic preference). At initialization, the system samples $N=1,000$ uniformly random map configurations from the underlying permutation state space ($37! \approx 1.37 \times 10^{43}$) to compute the empirical standard deviation ($\sigma$) of each objective. These Gen-0 static $\sigma$ values are not arbitrary, human-chosen scalars; they are exact empirical properties of the unoptimized problem domain.  
-Dividing each term by its Gen-0 $\sigma$ converts the objectives into comparable standard-deviation units (Z-score analogues). Without this conversion, the Moran's I hinge term—which accounts for approximately $92\%$ of empirical variance at Gen-0—effectively dictates the gradient, reducing the search to a single-objective spatial optimizer. Gen-0 normalization forces dimensional parity. Consequently, the assigned weight vector (e.g., 1:1:1 or sensitivity variants) rigorously governs the relative importance of the objectives in the gradient calculation, ensuring the composite behaves mathematically as intended.
+Dividing each term by its Gen-0 $\sigma$ converts the objectives into comparable standard-deviation units (Z-score analogues). Without this conversion, the Moran's I hinge term—which accounts for approximately $90\%$ of total weighted variance at Gen-0 under the nominal 1:1:1 weights (see §3.4.4 for the canonical formulation, §3.8 for the variance-equalization diagnostic)—effectively dictates the gradient, reducing the search to a single-objective spatial optimizer. Gen-0 normalization forces dimensional parity. Consequently, the assigned weight vector (e.g., 1:1:1 or sensitivity variants) rigorously governs the relative importance of the objectives in the gradient calculation, ensuring the composite behaves mathematically as intended.
 
 All three terms are normalized to $[0, 1]$ before weighting: $(1 - J_{\min}) \in [0,1]$, $\max(0,\ I - \mathbb{E}[I]) \in \left[0,\ 1 + \tfrac{1}{|G|-1}\right] \approx [0, 1.033]$ for $|G|=31$ (effectively bounded at 1 for all observed map configurations), and $\text{LSAP}/[|G|(|G|-1)] \in [0,1]$. The divisor $|G|(|G|-1)$ is the theoretical maximum of the sum of positive variance-normalized local Moran's I values under row-standardized $\mathbf{W}$. Balance gap (max − min player value) is retained as a display attribute but is excluded from the composite score and all Pareto dominance calculations.
 
@@ -54,9 +54,9 @@ $\text{gap} = \max(\mathbf{v}) - \min(\mathbf{v})$ where $\mathbf{v}$ is the per
 
 All spatial-autocorrelation metrics in this study — the optimizer's in-loop global Moran's I and LSAP, and the post-hoc conditional-permutation LISA in `scripts/validate_lisa_proxy.py` — operate on the same spatial graph $G$, defined as follows. Take the set of map spaces of type SYSTEM with non-None systems (this excludes the 6 home tiles by space type, and any empty hex positions). Construct adjacency from hex contiguity, including wormhole connections, but **excise edges through impassable systems** (Supernova) so that spatial proximity reflects navigable rather than purely geometric adjacency. Finally, **purge nodes left zero-degree** by that excision (typically a Supernova that ends up isolated). The result is the row-standardized adjacency $\mathbf{W}$ over $|G|$ surviving nodes; rows sum to 1.0 by construction.
 
-For the canonical 6-player layout used in this study, $|G| = 31$ across all runs (37 hex positions − 6 home tiles − 0 zero-degree purges; verified in `output/saturation_20260314_205919/lisa_validation_20260316_100413/validation_results.csv`, where `n_positions = 31` for all 120 maps). Implementation: [`src/ti4_analysis/algorithms/map_topology.py`](src/ti4_analysis/algorithms/map_topology.py).
+For the canonical 6-player layout, $29 \leq |G| \leq 31$ depending on per-seed anomaly placement: the 37 hex positions minus 6 home tiles produce 31 candidate spatial nodes, of which a Supernova that ends up isolated by impassable-edge excision is then zero-degree-purged. Across the 30-seed × 4-algorithm post-hoc validation set (120 maps total in `lisa_validation_*/validation_results.csv`), $|G|$ takes values 29, 30, 31 with frequencies 52, 52, 16 respectively — the canonical $|G| = 31$ value occurs when no Supernova is purged (4 of 30 seeds), the modal $|G| = 30$ when one Supernova is purged, $|G| = 29$ when two are. All metrics use each map's own $|G|$ for its $E[I]$ and LSAP normalization (single source: `MapTopology.n_spatial`); the §3.3 formulas below are stated for general $|G|$, not for a fixed value. Implementation: [`src/ti4_analysis/algorithms/map_topology.py`](src/ti4_analysis/algorithms/map_topology.py).
 
-> **Optimizer–validator alignment.** Both `FastMapState.morans_i()`/`lisa_penalty()` and `validate_lisa_proxy.py:conditional_permutation_lisa()` source `z` from `FastMapState.spatial_values()` and $\mathbf{W}$ from `MapTopology.spatial_W` — the same $|G| = 31$ graph. The Goodhart-style failure mode (heuristic optimized on one graph, significance assessed on another) is structurally precluded by this shared dependency. The auxiliary `morans_i_swappable()` over the swappable-connected subgraph is reported but not used in primary results.
+> **Optimizer–validator alignment.** Both `FastMapState.morans_i()`/`lisa_penalty()` and `validate_lisa_proxy.py:conditional_permutation_lisa()` source `z` from `FastMapState.spatial_values()` and $\mathbf{W}$ from `MapTopology.spatial_W` — the same per-seed graph $G$. The Goodhart-style failure mode (heuristic optimized on one graph, significance assessed on another) is structurally precluded by this shared dependency. The auxiliary `morans_i_swappable()` over the swappable-connected subgraph is reported but not used in primary results.
 
 ### Moran's I
 
@@ -86,7 +86,43 @@ For one dimension, $J(\mathbf{x}) = (\sum x_i)^2 / (n \sum x_i^2)$, range $[1/n,
 
 ---
 
-## 3.4 Algorithms
+## 3.4 The canonical fitness landscape
+
+The metric definitions in §3.1 and §3.3 are the foundational mathematical forms; the search routines of §3.5 operate not on those forms directly but on a canonical implementation in which three of the four composite terms have been replaced by their differentiable relaxations and the fourth has been variance-stabilized. Three of the four adjustments are the standard treatment of a known issue in either continuous optimization (gradient discontinuity at $\min$ and at the hinge) or spatial statistics (heteroskedasticity of local Moran's $I_i$ under row-standardized $\mathbf{W}$); the fourth is a variance-equalization choice motivated by §3.8's empirical analysis. None introduces a new mathematical object. Every reported phase of this study runs under the formulation defined in this section.
+
+### 3.4.1 Smooth-min Jain bottleneck
+
+The Multi-Jain bottleneck $J_{\min} = \min(J_R, J_I)$ has zero gradient with respect to the non-bottleneck dimension. Under simulated annealing's Metropolis criterion, perturbations that improve only the non-bottleneck dimension produce $\Delta S = 0$ moves, blunting the gradient signal and inducing plateau dynamics. We use the standard log-sum-exp relaxation of $\min$ at $p = 8$:
+
+$$J_{\min}^{(p)}(J_R, J_I) \;=\; -\tfrac{1}{p}\log\!\bigl(e^{-p J_R} + e^{-p J_I}\bigr),$$
+
+which converges to $\min(J_R, J_I)$ as $p \to \infty$ and is everywhere differentiable (Boyd & Vandenberghe, 2004, §3.1.5). At $p = 8$ the relaxation tracks the bottleneck to within $\log(2)/p \approx 0.087$, well below the per-dimension JFI variance observed at convergence.
+
+### 3.4.2 Softplus hinge
+
+The one-sided hinge $\max(0,\, I - \mathbb{E}[I])$ is non-differentiable at $I = \mathbb{E}[I]$, the threshold separating "no spatial penalty" from "spatial penalty applies" — precisely the most informative point on the objective surface. We use softplus at $k = 10$:
+
+$$\mathrm{softplus}_k(I - \mathbb{E}[I]) \;=\; \tfrac{1}{k}\log\!\bigl(1 + e^{k(I - \mathbb{E}[I])}\bigr).$$
+
+This is log-sum-exp of $\{0,\, I-\mathbb{E}[I]\}$ with one term fixed at zero, hence the same Boyd & Vandenberghe (2004, §3.1.5) reference applies. At $k = 10$ the relaxation deviates from the hinge by at most $\log(2)/k \approx 0.069$; for $|G|$ in our range, $|\mathbb{E}[I]|$ exceeds this, so the null-comparison structure of §3.1 is preserved.
+
+### 3.4.3 Variance-stabilized LSAP
+
+The local Moran's $I_i$ defined in §3.3 has variance that scales inversely with the topological degree $k_i$ under row-standardized $\mathbf{W}$ (following the variance derivation in Anselin, 1995). On the canonical 6-player layout, $k_i \in \{3, 5, 6\}$ (12 boundary nodes at degree 3, 6 transitional nodes at degree 5, 13 interior nodes at degree 6), so without correction 12 of 31 nodes — 39% of the spatial graph — contribute to LSAP at $\sqrt{6/3} = \sqrt{2}$-inflated standard deviation relative to interior nodes, regardless of clustering structure. We apply the natural variance-stabilizing scaling
+
+$$I_i^{\,\text{corr}} \;=\; \sqrt{k_i}\,I_i,$$
+
+so each node contributes to LSAP at unit-standardized scale. LSAP is then the sum of positive $I_i^{\text{corr}}$ values, normalized as in §3.3. Boots & Tiefelsdorf (2000) discuss the same heteroskedasticity for bounded regular tessellations and motivate equivalent corrections in the edge-effect setting.
+
+### 3.4.4 Static Gen-0 σ normalization
+
+The three composite terms differ in empirical magnitude by orders of magnitude on this topology; without an equalizing divisor the composite collapses to a single-objective optimizer for whichever term carries the largest variance. The §3.1 problem formulation adopts the standard treatment: each term is divided by its empirical standard deviation under $N = 1{,}000$ uniformly random map configurations, with the divisor frozen for the entire run. The alternative — dynamic per-iteration $\sigma$ — conflates landscape geometry with optimization progress, producing a composite that is not a well-defined function of map state alone, since $S(\text{map})$ acquires a path-dependence through the running $\sigma$ estimate. The empirical magnitude of the equalization is documented in §3.8: under 1:1:1 weights, the Moran's I hinge term accounts for approximately $90\%$ of total weighted variance at Gen-0, collapsing to near-zero variance at convergence as the optimizer drives spatial autocorrelation to its null floor.
+
+A `corrected_landscape=False` mode is retained in the codebase for sensitivity probes against the nominal published forms of the constituent metrics (raw $\min$, raw hinge, raw $I_i$) and dynamic $\sigma$ normalization; it does not appear in any reported result of this study.
+
+---
+
+## 3.5 Algorithms
 
 - **HC (Greedy Hill-Climbing):** Accepts only improving moves; no memory. HC optimizes the `balance_gap` as its sole scalar objective; it is included in Phase 2 exclusively as a baseline comparator and warm-start mechanism, not as an instrument for the main multi-objective experiment.
 - **SA (Simulated Annealing):** Markov chain with $P(\text{accept}) = \exp(-\Delta/T)$. Cooling rate $\alpha = (T_{\min}/T_0)^{1/N}$ over $N$ steps (Kirkpatrick et al., 1983). $T_0$ calibrated to initial acceptance rate.
@@ -103,29 +139,29 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 
 ---
 
-## 3.5 Experimental Protocol
+## 3.6 Experimental Protocol
 
 - **Seeds:** Benchmark seeds 0–99 (100 maps). Tuning seeds 9,000–9,099 (100). Held-out seeds 9,100–9,149 (50).
 - **Budget:** 1k–500k fitness evaluations per algorithm per seed (saturation study). Budget consumed as: HC/SA by iterations; SGA/NSGA-II by generations × population; TS by full-neighbourhood iterations; RS by independent samples. Budgets are chosen on a quasi-logarithmic grid (e.g. 1k, 5k, 10k, 50k, 100k, 500k) to characterize **anytime performance**: how quickly each algorithm improves as a function of evaluations, and at what point additional budget yields diminishing returns.
-- **Hyperparameter tuning:** SA, SGA, NSGA-II tuned on disjoint seeds (9,000–9,099) via Optuna TPE (50 trials each). TS tuned via **exhaustive grid search** over the tenure coefficient k (θ = max(3, ⌈k·√S⌉)) on the same seeds. Best parameters validated on a held-out set (9,100–9,149). `best_params.json` reports `cv_mean`, `cv_std` (training) and `held_out_mean`, `held_out_std` for overfitting comparison. **Held-out variance** is discussed in §3.6.
+- **Hyperparameter tuning:** SA, SGA, NSGA-II tuned on disjoint seeds (9,000–9,099) via Optuna TPE (50 trials each). TS tuned via **exhaustive grid search** over the tenure coefficient k (θ = max(3, ⌈k·√S⌉)) on the same seeds. Best parameters validated on a held-out set (9,100–9,149). `best_params.json` reports `cv_mean`, `cv_std` (training) and `held_out_mean`, `held_out_std` for overfitting comparison. **Held-out variance** is discussed in §3.7.
 - **Design topology (randomized block / repeated measures):** The main benchmark is a **randomized block design**: the same set of 100 seeds is evaluated under every algorithm at each budget level. Observations are therefore **paired within seeds** rather than independent across algorithms.
 - **Convergence:** `evals_to_best` recorded; convergence curves and budget utilization analyzed per budget. For each budget we summarize performance via medians and interquartile ranges, and use **bootstrap 95% confidence intervals on median differences** (rather than raw empirical percentiles) to obtain stable uncertainty estimates in the presence of rugged, discrete combinatorial landscapes.
 
 ---
 
-## 3.6 Hyperparameter Validation and Held-Out Variance
+## 3.7 Hyperparameter Validation and Held-Out Variance
 
 **(A) Landscape ruggedness.** The variance observed on the held-out validation set is not a failure of the hyperparameters (e.g. "overfitting to the tuning set"). In combinatorial optimization, unlike predictive ML, each run starts from a different random map (seed). The TI4 map fitness landscape is highly rugged; different seeds place the search in vastly different regions of the space. Some starting maps are relatively close to a fair configuration, while others require traversing deep, unrecoverable local minima. Thus, **the spread in held-out performance reflects the inherent variability of problem difficulty across starting states**, not that the tuned settings (e.g. tabu tenure, cooling schedule) have "memorized" the tuning seeds.
 
-**(B) Resiliency of the mean.** While the *variance* on the held-out set is larger than that in cross-validation (e.g. CV mean ± std: **0.0545 ± 0.0028** vs held-out: **0.0599 ± 0.0299** — replace with your actual values from `best_params.json`), the **mean** performance degrades only slightly. This shows that the optimized hyperparameters generalize successfully to unseen starting conditions: the same settings that perform well on the tuning seeds perform well on average on the held-out seeds, even though the absolute difficulty of individual held-out maps varies widely.
+**(B) Resiliency of the mean.** Empirically, the held-out distribution is comparable to (and not noisier than) the cross-validation distribution at the canonical Phase 0 SA tuning: CV mean ± std = PENDING_CANONICAL_PHASE_0 vs held-out mean ± std = PENDING_CANONICAL_PHASE_0 (`best_params.json`, $50$ held-out seeds disjoint from the tuning set). The held-out mean falls within a few percent of the CV mean, and the held-out standard deviation is comparable to (and not larger than) the CV standard deviation — the directional pattern that would indicate hyperparameter overfitting to the tuning seeds is absent. The same hyperparameters that perform well on the tuning seeds perform well on average on unseen seeds, with comparable spread. Specific numerical values will be inserted when the canonical Phase 0 artifact lands; the directional claim above is formulation-independent and does not depend on those values.
 
 **(C) Phase 2 as the ultimate mitigation.** This variance is precisely why the main benchmark (Phase 2: Saturation Benchmark) is designed as it is. We do not judge algorithms on a single run or on means alone. We run each algorithm on **100 seeds** (disjoint from tuning and held-out) and use **non-parametric inference**: Friedman omnibus test and pairwise Wilcoxon signed-rank tests with Holm–Bonferroni correction, plus Vargha–Delaney A and bootstrap CIs on median difference. By using repeated measures across 100 unseen seeds, we explicitly account for starting-state variance, ensuring that no algorithm is unfairly penalized by a "bad" starting seed and that claims of superiority are based on reported p-values and effect sizes.
 
 ---
 
-## 3.7 Analysis Tracks
+## 3.8 Analysis Tracks
 
-**Track A — Scalar (methods justification).** The 1:1:1 composite is applied to every algorithm's final solution; for NSGA-II, the Pareto-front member with minimum composite is selected (a posteriori scalarization). For NSGA-II, the Track A composite score is computed from the Pareto front member with minimum composite score at the end of the run; for scalar algorithms it is the run-best composite score observed at any point during the run. All six algorithms (RS, HC, SA, SGA, NSGA-II, TS) are compared via **median and IQR**, **Friedman** test, **Wilcoxon** signed-rank pairwise with Holm–Bonferroni correction, **Vargha–Delaney A**, and **bootstrap 95% CIs** on median difference. We do not base claims on mean values; we report p-values and claim one algorithm outperforms another only when the corrected p-value is below the chosen significance level. **Empirical variance note (pre-registered, `variance_equalization_diagnostic.py`):** Across N = 1,000 random (Gen-0) configurations, the Moran's I hinge term carries approximately 92% of total weighted empirical variance, with JFI gap and LSAP sharing the remaining 8%. Track A scalar results are therefore predominantly driven by spatial autocorrelation reduction in the early phase of search; Track B (Hypervolume, weight-independent) remains the primary evaluation. The σ shift diagnostic confirms the favorable outcome: the Moran's I hinge term collapses to near-zero variance at convergence (σ ≈ 0.000), while JFI gap and LSAP retain meaningful variance (approximately 65% and 35% of weighted empirical variance respectively). The 1:1:1 weights are therefore operationally consistent in the optimized subspace where the benchmark results are reported; the Gen-0 Moran's I dominance is an early-search transient, not a persistent distortion of the objective landscape.
+**Track A — Scalar (methods justification).** The 1:1:1 composite is applied to every algorithm's final solution; for NSGA-II, the Pareto-front member with minimum composite is selected (a posteriori scalarization). For NSGA-II, the Track A composite score is computed from the Pareto front member with minimum composite score at the end of the run; for scalar algorithms it is the run-best composite score observed at any point during the run. All six algorithms (RS, HC, SA, SGA, NSGA-II, TS) are compared via **median and IQR**, **Friedman** test, **Wilcoxon** signed-rank pairwise with Holm–Bonferroni correction, **Vargha–Delaney A**, and **bootstrap 95% CIs** on median difference. We do not base claims on mean values; we report p-values and claim one algorithm outperforms another only when the corrected p-value is below the chosen significance level. **Empirical variance note (pre-registered, `variance_equalization_diagnostic.py`).** The two-regime story documents why 1:1:1 weights are operationally consistent under the canonical formulation (§3.4). At Gen-0 ($N = 1{,}000$ uniformly random configurations), the Moran's I hinge term carries approximately $90\%$ of total weighted empirical variance under the nominal 1:1:1 weights; JFI gap and LSAP share the remaining $\sim 10\%$. Reported in isolation that figure suggests the composite is a single-objective spatial optimizer in disguise — but the σ-shift diagnostic shows the regime is transient: by SA convergence the Moran hinge has collapsed to near-zero variance ($\sigma \approx 0$, the optimizer drives spatial autocorrelation to its null floor) while LSAP and JFI retain meaningful variance, contributing approximately $56\%$ and $44\%$ of weighted empirical variance respectively at convergence. The Gen-0 dominance is therefore an early-search transient that the static σ normalization (§3.4.4) prevents from becoming a permanent landscape distortion; the 1:1:1 weights govern the relative importance of the three objectives in the optimized subspace where the benchmark results are reported. Track B (Hypervolume, weight-independent) remains the primary evaluation regardless.
 
 **Track B — Pareto (multi-objective quality).** NSGA-II's raw Pareto archives are evaluated with **Hypervolume (HV)**, **IGD+**, and **Spacing**. This is the primary evaluation for multi-objective performance and avoids scalarization. Scalar algorithms do not produce Pareto fronts and are compared only via Track A.
 
@@ -133,13 +169,13 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 
 **Unified HV (objective commensurability).** To place scalar and multi-objective methods in a **single objective space**, we additionally compute Hypervolume for every algorithm using **empirical Pareto fronts** extracted from the logged run histories. For each (algorithm, seed, budget), we collect the non-dominated set of visited maps in the canonical 3D space $(1 - J_{\min}, |I|, \text{LSAP})$ and compute HV against a common nadir reference point derived from the worst observed objective values (auto: worst×1.1). This yields a weight-independent, distribution-agnostic quality indicator that is commensurable across RS, HC, SA, SGA, NSGA-II, and TS. The unified HV tables and non-parametric statistics (Friedman / Wilcoxon / Vargha–Delaney) are produced by `scripts/unified_hv_analysis.py` using the `unified_archives/` emitted by `benchmark_engine.py`.
 
-**Causal scope.** The present study demonstrates that SA suppresses spatial clustering more effectively than HC and NSGA-II under fixed evaluation budgets; whether spatial clustering translates to measurable competitive disadvantage is an open empirical question requiring human-subject validation, addressed in Future Work.
+**Methodological scope.** The present study contributes a spatial-statistics methodology — Multi-Jain bottleneck JFI, smooth-min/softplus relaxations, $\sqrt{k}$-stabilized LSAP, static Gen-0 $\sigma$ normalization, and the canonical composite of §3.4 — and an empirical demonstration on the TI4 6-player toy problem under fixed-anomaly topology that spatial metrics detect map configurations scalar fairness metrics cannot. Generalization to variable-topology spatial-allocation problems (anomaly placement as a swap variable) is the natural next direction for the methodology and is sketched in the README's *Future Work* section.
 
 **Statistical justification.** Because the design is randomized-block / repeated-measures (same seeds under all algorithms), our data consist of **dependent paired samples** across algorithms. The **Friedman** test is therefore the correct non-parametric omnibus analogue of repeated-measures ANOVA; independent-sample tests such as Kruskal–Wallis would incorrectly treat within-seed variance as between-subject noise and inflate Type II error. Likewise, pairwise comparisons use the **Wilcoxon signed-rank** test (paired) rather than Mann–Whitney U / rank-sum (independent samples), ensuring that within-seed pairing is fully exploited in the inference.
 
 ---
 
-## 3.8 Ablation Study: Objective-Weight Paths
+## 3.9 Ablation Study: Objective-Weight Paths
 
 To empirically validate the necessity of the multi-objective formulation and satisfy the parsimony requirement (Anselin, 1995), the methodology employs a five-condition ablation design:
 
@@ -157,7 +193,7 @@ C3 is the critical parsimony test: if global Moran's I is sufficient to constrai
 
 ---
 
-## 3.9 Null hypotheses
+## 3.10 Null hypotheses
 
 **RQ1:** $H_0$: the distribution of composite scores does not differ significantly across algorithms at any fixed evaluation budget (Friedman test, $\alpha = 0.05$).
 
@@ -169,7 +205,7 @@ C3 is the critical parsimony test: if global Moran's I is sufficient to constrai
 
 ---
 
-## 3.10 Statistical methods and effect size
+## 3.11 Statistical methods and effect size
 
 **Effect size for paired comparisons.** For paired (before/after) or within-seed comparisons we report **Cohen's $d_z$**: the standardized mean difference of the *change*, $d_z = \bar{D} / s_D$, where $\bar{D}$ is the mean of the paired differences (after − before) and $s_D$ is their standard deviation (ddof=1). This is the appropriate effect size for the paired $t$-test and for repeated-measures designs (Lakens, 2013). Magnitude bands: $|d_z| < 0.2$ negligible; $0.2 \leq |d_z| < 0.5$ small; $0.5 \leq |d_z| < 0.8$ medium; $|d_z| \geq 0.8$ large.
 

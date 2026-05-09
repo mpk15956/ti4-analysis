@@ -1,0 +1,74 @@
+{
+  "_metadata": {
+    "purpose": "Float32 -> float64 migration witness. The `pre_float64_migration` block records the metric values produced by the pre-migration optimizer hot path (FastMapState + MapTopology in float32). The `post_float64_migration` block records the values under the migrated (uniformly float64) implementation. Together they document that the migration preserved metric semantics: shifts are at the ~1e-7 level (float32 precision contract) for FastMapState, and ~1e-11 for spatial_metrics (which was already mostly float64). The parity test (tests/test_metric_parity.py) pins current values against `post_float64_migration` at near-bit-equality (rtol=1e-12, atol=1e-14); a diff against either block beyond ~1e-6 indicates the migration changed metric semantics, not just precision, and is an actionable test failure.",
+    "fixture": "tests.test_metric_parity._canonical_6p_state",
+    "regeneration_command_pre": "(captured 2026-05-07 at git_hash 6ec5031, before float64 migration; this block is frozen and should not be regenerated)",
+    "regeneration_command_post": "pixi run python scripts/capture_float64_witness.py  (re-capture after any code change touching the metric hot path; if values differ from the post block by more than ~1e-12, investigate before committing)",
+    "tolerance_policy": "Tightening the parity-test tolerance below 1e-12 is permitted only if the post-migration values still hold under the current code. The 1e-6 envelope vs the pre-migration block is the semantic-preservation contract; the 1e-12 envelope vs the post-migration block is the no-regression contract."
+  },
+  "pre_float64_migration": {
+    "captured_at": "2026-05-07T10:07:05.599388",
+    "git_hash": "6ec5031",
+    "git_dirty": true,
+    "dtype_state": {
+      "spatial_values": "float32",
+      "spatial_W": "float32",
+      "system_value": "float32",
+      "home_resources": "float32"
+    },
+    "canonical_6p_layout": {
+      "n_spatial": 31,
+      "morans_i_null_expectation": -0.03333333333333333,
+      "morans_i_fastmapstate": 0.19601571830265957,
+      "morans_i_spatial_metrics": 0.19601570026383927,
+      "morans_i_expected_from_standalone": -0.03333333333333333,
+      "lisa_penalty_fastmapstate": 9.294071197509766,
+      "jfi_resources": 0.9971230739223718,
+      "jfi_influence": 0.9904722736308177,
+      "jfi_bottleneck": 0.9904722736308177,
+      "jfi_via_spatial_metrics": 0.9971230626106262
+    }
+  },
+  "post_float64_migration": {
+    "captured_at": "2026-05-07T10:18:12.468932",
+    "git_hash": "6ec5031",
+    "git_dirty": true,
+    "dtype_state": {
+      "spatial_values": "float64",
+      "spatial_W": "float64",
+      "system_value": "float64",
+      "home_resources": "float64"
+    },
+    "canonical_6p_layout": {
+      "n_spatial": 31,
+      "morans_i_null_expectation": -0.03333333333333333,
+      "morans_i_fastmapstate": 0.1960157002147671,
+      "morans_i_spatial_metrics": 0.19601570021476725,
+      "morans_i_expected_from_standalone": -0.03333333333333333,
+      "lisa_penalty_fastmapstate": 9.294071687773087,
+      "jfi_resources": 0.9971230739223718,
+      "jfi_influence": 0.9904722736308177,
+      "jfi_bottleneck": 0.9904722736308177,
+      "jfi_via_spatial_metrics": 0.9971230739223718
+    },
+    "delta_vs_pre_float64_migration": {
+      "morans_i_fastmapstate_abs_diff": 1.8e-08,
+      "morans_i_spatial_metrics_abs_diff": 4.9e-11,
+      "lisa_penalty_abs_diff": 4.9e-07,
+      "jfi_via_spatial_metrics_abs_diff": 1.13e-08,
+      "cross_impl_morans_i_diff_post": 1.5e-13,
+      "cross_impl_jfi_diff_post": 0.0,
+      "interpretation": "All deltas within the float32 precision contract (~1e-7 relative for moderate-magnitude values); the migration shifted numerics within precision, not semantics. Critically, post-migration the two impls (FastMapState vs spatial_metrics) now agree to bit-equality on both Moran's I (1.5e-13 absolute, accumulated round-off only) and JFI (0.0 \u2014 identical bits)."
+    }
+  },
+  "textbook_path_graph": {
+    "description": "Hand-computed reference: 4-node path 1-2-3-4 with values [1,2,3,4]; I = 0.4 exact",
+    "n": 4,
+    "morans_i_expected": 0.4,
+    "morans_i_null_expectation": -0.3333333333333333
+  },
+  "jfi_golden_values": {
+    "perfect_fairness_4ones": 1.0,
+    "max_unfairness_4_0_0_0": 0.25
+  }
+}

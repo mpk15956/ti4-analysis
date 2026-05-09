@@ -789,40 +789,34 @@ def main() -> int:
     run_dir = Path(args.output_dir) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Persist config
-    config = {
-        "run_name":   run_name,
-        "seeds":      args.seeds,
-        "base_seed":  args.base_seed,
-        "players":    args.players,
-        "algorithms": sorted(algos),
-        "budgets":    budget_levels,
-        "workers":    args.workers,
-        "hc_iter":    args.hc_iter,
-        "sa_iter":    args.sa_iter,
-        "nsga_gen":   args.nsga_gen,
-        "nsga_pop":   args.nsga_pop,
-        "nsga_evals": args.nsga_gen * args.nsga_pop,
-        "ts_tenure":   args.ts_tenure,
-        "ts_k":        args.ts_k,
-        "chains":      max(1, getattr(args, "chains", 1)),
-        "corrected_landscape": getattr(args, "corrected_landscape", False),
-        "use_local_variance_lisa": getattr(args, "corrected_landscape", False),
-        "weight_grid_step": getattr(args, "weight_grid_step", 0.0),
-        "conditions": conditions_list,
-        "started_at": datetime.now().isoformat(),
-    }
-    try:
-        import subprocess
-        config["git_hash"] = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except Exception:
-        config["git_hash"] = "unknown"
+    # Persist config via the canonical helper (audit follow-up: single-source
+    # writer, per-file metric hashes, resolved weights captured post-construction
+    # rather than left as None — see src/ti4_analysis/utils/run_config.py).
+    from ti4_analysis.utils.run_config import write_run_config
+    from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
 
-    with open(run_dir / "run_config.json", "w") as f:
-        json.dump(config, f, indent=2)
+    # Resolved default weights: instantiate a MultiObjectiveScore with no
+    # explicit weights to capture the optimizer's actual default at this
+    # code state. Per-condition overrides are recorded under
+    # `condition_weights` (the CONDITIONS dict) so consumers can reconstruct
+    # which weight vector each row used.
+    _default_score = MultiObjectiveScore(
+        balance_gap=0.0, morans_i=0.0, jains_index=1.0,
+        lisa_penalty=0.0, n_spatial=31,
+    )
+    resolved = dict(_default_score.weights)
+
+    extra = {
+        "run_name":   run_name,
+        "nsga_evals": args.nsga_gen * args.nsga_pop,
+        "use_local_variance_lisa": getattr(args, "corrected_landscape", False),
+        "conditions": conditions_list,
+        "condition_weights": {
+            name: {"morans_i": w[0], "jains_index": w[1], "lisa_penalty": w[2]}
+            for name, w in CONDITIONS.items()
+        } if conditions_list else None,
+    }
+    write_run_config(run_dir, args=args, resolved_weights=resolved, extra=extra)
 
     csv_path = run_dir / "results.csv"
     print(f"Run directory : {run_dir}")

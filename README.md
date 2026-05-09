@@ -6,7 +6,7 @@ Rigorous spatial-statistical evaluation of map balancing algorithms for *Twiligh
 
 ## Abstract
 
-Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. **The paper's contribution is geographic/methodological:** we show that spatial metrics (Moran's I, LSAP) add meaningful constraint beyond scalar fairness (JFI). The main experiment is a **four-condition ablation** (JFI-only, Moran's I only, LSAP only, full composite 1:1:1) using simulated annealing (SA) as the instrument on the same seeds and budgets. We test whether maps from the full-composite condition differ detectably from JFI-only in their spatial profile (LSAP, Moran's I hinge) and report JFI parity. Algorithms are instruments for generating optimized maps; algorithm comparison (six algorithms, multi-budget) is **methods justification** for choosing SA, not the primary result. This study demonstrates computationally that spatial autocorrelation metrics detect map configurations that scalar fairness metrics cannot optimize toward. The causal chain from spatial clustering to competitive disadvantage in human play is not tested here and constitutes the primary empirical question for subsequent work, addressable through telemetry from the companion application or controlled play experiments.
+Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. **The paper's contribution is geographic/methodological:** we show that spatial metrics (Moran's I, LSAP) add meaningful constraint beyond scalar fairness (JFI). The main experiment is a **five-condition ablation** (JFI only, Moran's I only, LSAP only, JFI+Moran without LSAP, full composite 1:1:1) using simulated annealing as the instrument on the same seeds and budgets, all under the canonical formulation defined in Methodology §3.4 (smooth-min Jain bottleneck, softplus hinge, $\sqrt{k}$-stabilized LSAP, static Gen-0 $\sigma$ normalization). We test whether maps from the full-composite condition differ detectably from JFI-only in their spatial profile (LSAP, Moran's I hinge) and report JFI parity. The TI4 6-player layout serves as a toy problem with fixed anomaly topology (red tiles non-adjacent and frozen) and swappable blue resource tiles; generalization to variable-topology spatial allocation (red-tile / anomaly swap) is sketched in *Future Work* below.
 
 *(The benchmark experiment reported in Key Results pre-dates this formulation and used balance gap as the distributional equity metric; see the version note in Methods.)*
 
@@ -119,7 +119,7 @@ All three terms are normalized to [0, 1] before weighting:
 
 `balance_gap` (max − min player value) is retained as a stored attribute on `MultiObjectiveScore` for display and reporting, but is excluded from the composite score and all Pareto dominance calculations.
 
-**Structural corrections (`--corrected-landscape`).** The benchmark supports an optional corrected fitness landscape: static Gen-0 variance normalization (1,000 random maps), smooth JFI/hinge operators, $\sqrt{k_i}$-corrected LSAP, and TS default tenure $0.05 \cdot \binom{S}{2}$. Use `--corrected-landscape` in `benchmark_engine.py` to enable; see Methodology §3.4 and the plan in `.cursor/plans/`.
+**Structural corrections (`--corrected-landscape`).** The benchmark supports an optional corrected fitness landscape: static Gen-0 variance normalization (1,000 random maps), smooth JFI/hinge operators, $\sqrt{k_i}$-corrected LSAP, and TS default tenure $0.05 \cdot \binom{S}{2}$. Use `--corrected-landscape` in `benchmark_engine.py` to enable; see Methodology §3.5 and the plan in `.cursor/plans/`.
 
 > **Version note:** The benchmark results in Key Results were produced at git `2c252a6` with an earlier formula that used `balance_gap` (weight 1.0) as the distributional equity term in place of `1 − jains_index`. The methodology sections below describe the current code.
 
@@ -218,7 +218,7 @@ $$J_{\min} = \min\bigl(J(\mathbf{r}),\; J(\mathbf{i})\bigr)$$
 
 where $\mathbf{r}$ and $\mathbf{i}$ are the per-player distance-weighted resource and influence totals respectively. This Multi-Jain formulation is theoretically inspired by the bottleneck intuition in multi-resource allocation (Ghodsi et al., 2011): a map's fairness is limited by its *least fair* resource dimension. A map where Resources are perfectly balanced but Influence is heavily skewed will be penalized, even though a single-scalar JFI on the Joebrew value might report high fairness.
 
-Both per-dimension values ($J_R$, $J_I$) are recorded in the benchmark CSV for disaggregated analysis. JFI replaces balance gap (max − min range) as the axiomatic, scale-invariant measure of resource disparity (Jain et al., 1984). Note: JFI has been shown to correlate with human fairness ratings in one-to-many allocation games (Grappiolo et al., 2013), but the link between spatial autocorrelation (Moran's I) and player-perceived map fairness remains an open empirical question requiring future user studies.
+Both per-dimension values ($J_R$, $J_I$) are recorded in the benchmark CSV for disaggregated analysis. JFI replaces balance gap (max − min range) as the axiomatic, scale-invariant measure of resource disparity (Jain et al., 1984).
 
 > **Relationship to DRF.** The bottleneck principle (fairness bounded by the most constrained dimension) is analogous to the intuition in multi-resource allocation (Ghodsi et al., 2011). We do not claim formal allocation-theoretic properties (e.g. strategy-proofness or envy-freeness), which apply to mechanisms with demands, not to fixed map topologies. Moran's I and LISA continue to operate on the combined Joebrew scalar (`max(R, I) + tech`), since spatial clustering concerns total tile value regardless of resource dimension. Getis-Ord $G_i^*$ is omitted from the methodology because at $N \approx 37$ its asymptotic z-score is unreliable and because LISA/LSAP are better suited to detecting spatial outliers; significance is assessed only via conditional permutation LISA.
 
@@ -560,9 +560,11 @@ pytest tests/test_nsga2_optimizer.py -v
 
 ## Future Work
 
-- **Fitness landscape ruggedness analysis.** A formal characterization of the search space ruggedness — via autocorrelation length (Weinberger, 1990) or NK-landscape analysis (Kauffman, 1993) — would quantify the density of local optima and empirically justify the need for local-optima escape mechanisms (SA Metropolis criterion, TS tabu memory). A 2D fitness landscape slice (fixing all but two tile positions and sweeping their swap) would provide an intuitive visualization of this ruggedness to complement the convergence profiles from the saturation study.
-- **Human-subject validation.** JFI has been shown to correlate with human fairness ratings in allocation games (Grappiolo et al., 2013), but the link between spatial autocorrelation metrics (Moran's I, LISA) and player-perceived map fairness remains an open empirical question. Telemetry from the companion Rust/Tauri community application could source the necessary play data for a future user study.
-- **Adaptive weight tuning.** The current composite score weights (5:5:3) are fixed. A Pareto-front-guided approach could learn weight preferences from player feedback, enabling personalized map generation.
+The spatial-stats methodology this paper develops — Multi-Jain bottleneck JFI, smooth-min/softplus differentiable relaxations, $\sqrt{k}$-stabilized LSAP, static Gen-0 $\sigma$ normalization, and the canonical composite of §3.4 — is validated here under **one regime of the TI4 toy problem**: the anomaly topology is fixed (**Problem A** held constant — non-adjacent anomalies seeded once and frozen for the entire run), and the optimizer swaps only the blue resource tiles (**Problem B** — resource allocation on a fixed routing graph).
+
+The natural next direction is to release the Problem A constraint and let the **anomaly placement itself become the swappable variable**. Red tiles (asteroid fields, supernovae, nebulae, gravity rifts) determine the routing graph by construction: supernovae block edges, asteroid fields are impassable, gravity rifts shift distance costs. When red tiles swap, the spatial weights matrix $\mathbf{W}$ becomes a function of the configuration rather than a fixed input — the row-standardization rebalances per move, and the §3.4 corrections (smooth-min, softplus hinge, $\sqrt{k}$-LSAP, static Gen-0 $\sigma$) need to be re-validated under variable topology. The methodological question is whether the spatial-metrics-add-constraint finding from the fixed-topology subspace persists in the larger problem space, or whether it was a property of the fixed-anomalies constraint.
+
+The TI4 6-player layout serves here as a toy problem in the methodological sense — finite tile pool, clean hex topology, well-defined adjacency. What this extension teaches about variable-topology spatial allocation may generalize to other discrete-topology spatial-resource problems where the geometry is not fixed in advance: facility-location with infrastructure-induced topology, transportation-network design, any spatial-allocation problem where the decision variables include both the placement of valued resources *and* the adjacency structure that placement induces.
 
 ---
 
@@ -580,17 +582,11 @@ Ishibuchi, H., Masuda, H., Tanigaki, Y., & Nojima, Y. (2015). Modified distance 
 
 Libório, M. P., de Abreu, J. F., Ekel, P., & Machado, A. (2022). Effect of sub-indicator weighting schemes on the spatial dependence of multidimensional phenomena. *Journal of Geographical Systems*, 25, 185–211.
 
-Grappiolo, C., Martínez, H. P., & Yannakakis, G. N. (2013). Validating generic metrics of fairness in game-based resource allocation scenarios with crowdsourced annotations. *Transactions on Computational Collective Intelligence*, 13, 176–200.
-
 Jain, R., Chiu, D. M., & Hawe, W. R. (1984). A quantitative measure of fairness and discrimination for resource allocation in shared computer systems. *DEC Research Report TR-301*.
-
-Kauffman, S. A. (1993). *The Origins of Order: Self-Organization and Selection in Evolution*. Oxford University Press.
 
 Kirkpatrick, S., Gelatt, C. D., & Vecchi, M. P. (1983). Optimization by simulated annealing. *Science*, 220(4598), 671–680.
 
 Moran, P. A. P. (1950). Notes on continuous stochastic phenomena. *Biometrika*, 37(1/2), 17–23.
-
-Weinberger, E. D. (1990). Correlated and uncorrelated fitness landscapes and how to tell the difference. *Biological Cybernetics*, 63(5), 325–336.
 
 ---
 

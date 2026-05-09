@@ -65,9 +65,9 @@ We predict the spatial profile difference between C0 and C4 will be detectable a
 
 ---
 
-## 6. Human Validation Limitation
+## 6. Methodological Scope
 
-This study demonstrates computationally that spatial autocorrelation metrics detect map configurations that scalar fairness metrics cannot optimize toward. The causal chain from spatial clustering to competitive disadvantage in human play is not tested here and constitutes the **primary empirical question for subsequent work**, addressable through telemetry from the companion application or controlled play experiments. This sentence appears in the abstract and in limitations.
+This is a standalone spatial-statistics methodology contribution: we develop the canonical composite of §3.4 (Multi-Jain bottleneck JFI, smooth-min/softplus differentiable relaxations, $\sqrt{k}$-stabilized LSAP, static Gen-0 $\sigma$ normalization) and demonstrate empirically on the TI4 6-player toy problem that spatial autocorrelation metrics detect map configurations that scalar fairness metrics cannot optimize toward. The toy problem is held to a fixed-anomaly topology (Problem A constant; only blue resource tiles swap — Problem B). Extension to variable-topology spatial allocation (anomaly placement as a swap variable) is sketched in *Future Work* in the README.
 
 ---
 

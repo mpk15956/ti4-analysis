@@ -8,7 +8,7 @@
 #         C0 ≈ −0.078 (target ≈ −0.079)
 #         C4 ≈ −0.657 (target ≈ −0.669)
 #   2) Phase 3 stats re-run at budget=500k on the existing Phase 2b results.csv.
-#   3) variance_equalization_diagnostic.py on production data (fills §3.7).
+#   3) variance_equalization_diagnostic.py on production data (fills §3.8).
 #
 # Submit AFTER ti4-analysis.sif is built:
 #   sbatch --dependency=afterok:<build-jobid> scripts/verify_pixi_apptainer.slurm

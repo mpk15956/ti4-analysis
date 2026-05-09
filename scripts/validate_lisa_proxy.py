@@ -392,6 +392,13 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     csv_path = run_dir / "validation_results.csv"
 
+    # Audit follow-up: previously this phase wrote no run_config.json, so its
+    # artifacts were unbound to any code state. The helper records git_hash,
+    # env, and per-file metric hashes alongside the argparse fields.
+    from ti4_analysis.utils.run_config import write_run_config
+    write_run_config(run_dir, args=args, extra={"phase": "4_lisa_validation",
+                                                 "run_name": run_name})
+
     print(f"LISA Proxy Validation")
     print(f"Seeds       : {args.seeds} (base={args.base_seed})")
     print(f"Algorithms  : {', '.join(sorted(algos))}")

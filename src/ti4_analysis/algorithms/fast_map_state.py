@@ -56,9 +56,9 @@ class FastMapState:
         system_influence: np.ndarray,
     ) -> None:
         self.topology = topology
-        self.system_value: np.ndarray = system_value        # shape (S,) float32
-        self.system_resources: np.ndarray = system_resources  # shape (S,) float32
-        self.system_influence: np.ndarray = system_influence  # shape (S,) float32
+        self.system_value: np.ndarray = system_value        # shape (S,) float64
+        self.system_resources: np.ndarray = system_resources  # shape (S,) float64
+        self.system_influence: np.ndarray = system_influence  # shape (S,) float64
         self._home_values: np.ndarray = (
             topology.static_home_values + topology.dynamic_weight_matrix @ system_value
         )
@@ -70,7 +70,7 @@ class FastMapState:
             topology.static_home_influence + topology.dynamic_weight_matrix @ system_influence
         )
         self._home_ri_dirty: bool = False
-        self._spatial_values: np.ndarray = np.empty(0, dtype=np.float32)
+        self._spatial_values: np.ndarray = np.empty(0, dtype=np.float64)
         self._spatial_dirty: bool = True
 
     @classmethod
@@ -89,7 +89,7 @@ class FastMapState:
                 spaces[i].system.evaluate(evaluator) if spaces[i].system else 0.0
                 for i in topology.swappable_indices
             ],
-            dtype=np.float32,
+            dtype=np.float64,
         )
         system_resources = np.array(
             [
@@ -97,7 +97,7 @@ class FastMapState:
                 if spaces[i].system else 0.0
                 for i in topology.swappable_indices
             ],
-            dtype=np.float32,
+            dtype=np.float64,
         )
         system_influence = np.array(
             [
@@ -105,7 +105,7 @@ class FastMapState:
                 if spaces[i].system else 0.0
                 for i in topology.swappable_indices
             ],
-            dtype=np.float32,
+            dtype=np.float64,
         )
         return cls(topology, system_value, system_resources, system_influence)
 
@@ -137,7 +137,7 @@ class FastMapState:
         Return home values for all H home positions.
 
         Lazily recomputed via matmul when dirty; cached otherwise.
-        Shape: (H,) float32.
+        Shape: (H,) float64.
 
         Formula: static_home_values + dynamic_weight_matrix @ system_value
         The static term (non-swappable tiles) is pre-computed in MapTopology.
@@ -161,12 +161,12 @@ class FastMapState:
 
         Lazily recomputed when dirty; cached otherwise.
         Formula: spatial_static_values + spatial_projection @ system_value
-        Shape: (N_sys,) float32.
+        Shape: (N_sys,) float64.
         """
         if self._spatial_dirty:
             topo = self.topology
             proj = np.asarray(
-                topo.spatial_projection @ self.system_value, dtype=np.float32
+                topo.spatial_projection @ self.system_value, dtype=np.float64
             ).ravel()
             self._spatial_values = topo.spatial_static_values + proj
             self._spatial_dirty = False
@@ -289,7 +289,7 @@ class FastMapState:
         conn = self.topology.swappable_connected_s_pos
         if len(conn) < 3:
             return 0.0
-        z = np.asarray(self.system_value[conn], dtype=np.float32)
+        z = np.asarray(self.system_value[conn], dtype=np.float64)
         z_dev = z - z.mean()
         denom = float(z_dev @ z_dev)
         if denom == 0.0:
@@ -315,7 +315,7 @@ class FastMapState:
         conn = self.topology.swappable_connected_s_pos
         if len(conn) < 3:
             return 0.0
-        z = np.asarray(self.system_value[conn], dtype=np.float32)
+        z = np.asarray(self.system_value[conn], dtype=np.float64)
         z_dev = z - z.mean()
         n = len(z)
         m2 = float(z_dev @ z_dev) / n
@@ -324,7 +324,7 @@ class FastMapState:
         Wz = self.topology.spatial_W_swappable @ z_dev
         local_I = z_dev * np.asarray(Wz).ravel() / m2
         if use_local_variance and hasattr(self.topology, 'degree_swappable') and len(self.topology.degree_swappable) == n:
-            sqrt_k = np.sqrt(np.asarray(self.topology.degree_swappable, dtype=np.float32))
+            sqrt_k = np.sqrt(np.asarray(self.topology.degree_swappable, dtype=np.float64))
             local_I = local_I * sqrt_k
         return float(local_I[local_I > 0].sum())
 
@@ -407,7 +407,7 @@ class FastMapState:
         new._home_ri_dirty = self._home_ri_dirty
         new._spatial_values = (
             self._spatial_values.copy() if not self._spatial_dirty
-            else np.empty(0, dtype=np.float32)
+            else np.empty(0, dtype=np.float64)
         )
         new._spatial_dirty = self._spatial_dirty
         return new

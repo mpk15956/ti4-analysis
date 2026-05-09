@@ -73,6 +73,12 @@ torch = ">=2.3"
 torchrl = ">=0.5.0"
 torch-geometric = ">=2.6"
 chompjs = ">=1.2.0"
+# optuna promoted from the `tuning` feature to base (May 2026): the canonical
+# container's `default` env runs Phase 0 hyperparameter tuning, so optuna
+# belongs in every environment, not gated to a feature. The May 6 SIF was
+# built against the `default` env without optuna, which made Phase 0 in
+# submit_paper1.sh fail in 3 seconds — root cause of job 28171's failure.
+optuna = ">=4.0"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=7.4"

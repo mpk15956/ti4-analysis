@@ -2,7 +2,7 @@
 """
 Variance equalization diagnostic for the composite objective weights.
 
-Addresses the reviewer concern (Methodology §3.7) that if the empirical
+Addresses the reviewer concern (Methodology §3.8) that if the empirical
 variance of LSAP across the map space is substantially larger than the
 variance of JFI or Moran's I, the largest-σ term will silently dominate
 the Markov chain acceptance dynamics regardless of the nominal weight
@@ -237,6 +237,19 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     weights_label = ":".join(f"{w:g}" for w in raw_weight_tuple)
+
+    # Audit follow-up: this phase records per-row weight provenance in the CSV
+    # (commit 6ae5061), but the run_config sidecar was never added. The helper
+    # records git_hash, env, per-file metric hashes, and the resolved
+    # post-construction weights — closing the metadata gap that the per-row
+    # provenance fix only partially addressed.
+    from ti4_analysis.utils.run_config import write_run_config
+    write_run_config(
+        output_dir, args=args,
+        resolved_weights=score_weights_dict,
+        extra={"phase": "variance_equalization", "timestamp": timestamp,
+               "weights_label": weights_label},
+    )
 
     print(f"Variance Equalization Diagnostic — {timestamp}")
     print(f"  Gen-0 sample size : {args.n_random} random maps")

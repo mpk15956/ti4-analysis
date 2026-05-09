@@ -67,6 +67,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sga-blob", type=float, default=0.5)
     p.add_argument("--sga-mut", type=float, default=0.05)
     p.add_argument("--sga-warm", type=float, default=0.10)
+    p.add_argument("--corrected-landscape", action="store_true",
+                   help="Run sensitivity under the canonical (corrected) fitness "
+                        "landscape: Gen-0 σ normalization, smooth-min Jain (p=8), "
+                        "softplus hinge (k=10), √k-LSAP local-variance correction. "
+                        "Mirrors benchmark_engine.py so the τ values measured here "
+                        "are sensitivity-of-the-canonical-objective, not "
+                        "sensitivity-of-the-legacy-uncorrected-objective.")
     return p.parse_args()
 
 
@@ -83,11 +90,13 @@ def _run_seed_config(job):
     (seed, algos_list, weight_config_name, weight_table,
      budget, players,
      sa_rate, sa_min_temp,
-     sga_blob, sga_mut, sga_warm) = job
+     sga_blob, sga_mut, sga_warm,
+     corrected_landscape) = job
 
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.spatial_optimizer import (
         improve_balance_spatial, evaluate_map_multiobjective,
+        compute_gen0_sigma,
     )
     from ti4_analysis.algorithms.sga_optimizer import sga_optimize
     from ti4_analysis.algorithms.map_topology import MapTopology
@@ -109,6 +118,27 @@ def _run_seed_config(job):
             include_pok=True, random_seed=seed,
         )
 
+        # Build the corrections kwargs once per seed; mirrors the values
+        # benchmark_engine.py uses (n_samples=1000, seed offset +99999,
+        # smooth_p=8, smooth_k=10, use_local_variance_lisa=True). When
+        # corrected_landscape=False, eval_kw stays empty and every optimizer
+        # call uses default (uncorrected) behavior.
+        eval_kw = {}
+        if corrected_landscape:
+            topo = MapTopology.from_ti4_map(initial_map, evaluator)
+            sigma = compute_gen0_sigma(
+                topo, evaluator, initial_map.copy(),
+                n_samples=1000, random_seed=seed + 99999,
+                use_local_variance_lisa=True,
+            )
+            eval_kw = dict(
+                normalizer_sigma=sigma,
+                use_smooth_objectives=True,
+                smooth_p=8.0,
+                smooth_k=10.0,
+                use_local_variance_lisa=True,
+            )
+
         if "sa" in algos:
             sa_map = initial_map.copy()
             t0 = time.time()
@@ -116,6 +146,7 @@ def _run_seed_config(job):
                 sa_map, evaluator, iterations=budget,
                 initial_acceptance_rate=sa_rate, min_temp=sa_min_temp,
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             rows.append({
                 "seed": seed, "algorithm": "sa",
@@ -140,6 +171,7 @@ def _run_seed_config(job):
                 blob_fraction=sga_blob, mutation_rate=sga_mut,
                 warm_fraction=sga_warm,
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             rows.append({
                 "seed": seed, "algorithm": "sga",
@@ -174,6 +206,20 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     csv_path = run_dir / "sensitivity_results.csv"
 
+    # Audit follow-up: previously this phase wrote no run_config.json or even
+    # a sidecar JSON of the WEIGHT_CONFIGS perturbation grid. Without these,
+    # the artifact was unbound to any code state. The helper records git_hash,
+    # env, per-file metric hashes, and the perturbation grid the run used.
+    from ti4_analysis.utils.run_config import write_run_config
+    write_run_config(
+        run_dir, args=args,
+        extra={
+            "phase": "5_dist_sensitivity",
+            "run_name": run_name,
+            "weight_configs": {name: list(weights) for name, weights in WEIGHT_CONFIGS.items()},
+        },
+    )
+
     print(f"Distance-Weight Sensitivity Analysis")
     print(f"Seeds          : {args.seeds} (base={args.base_seed})")
     print(f"Algorithms     : {', '.join(algos)}")
@@ -191,6 +237,7 @@ def main() -> int:
                 args.budget, args.players,
                 args.sa_rate, args.sa_min_temp,
                 args.sga_blob, args.sga_mut, args.sga_warm,
+                args.corrected_landscape,
             ))
 
     pool = None

@@ -90,6 +90,15 @@ output/
 *.oci.tar
 .build-tmp/
 
+# SLURM job output / accounting
+# Job IDs are non-deterministic and these files are stdout dumps; the
+# canonical run state lives in output/<run_tag>/run_config.json sidecars
+# (git_hash, git_dirty, resolved weights, per-file metric hashes). If a
+# specific slurm-out is needed for a post-mortem, copy it INTO the
+# corresponding output/<run_tag>/ directory rather than committing at root.
+slurm-*.out
+slurm-*.err
+
 # Results and data
 results/*.png
 results/*.jpg

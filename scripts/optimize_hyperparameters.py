@@ -73,7 +73,67 @@ def parse_args() -> argparse.Namespace:
                    help="Optuna study name (enables resume via --storage)")
     p.add_argument("--storage",     type=str, default=None,
                    help="Optuna storage URL, e.g. sqlite:///optuna.db")
+    p.add_argument("--corrected-landscape", action="store_true",
+                   help="Tune against the canonical (corrected) fitness landscape: "
+                        "Gen-0 σ normalization, smooth-min Jain (p=8), softplus hinge "
+                        "(k=10), √k-LSAP local-variance correction. Mirrors "
+                        "benchmark_engine.py's --corrected-landscape so Phase 0 "
+                        "produces hyperparameters tuned for the same objective Phase 1 "
+                        "evaluates against. WITHOUT this flag, the tuner optimizes "
+                        "against the legacy uncorrected landscape, which leaves Phase 1 "
+                        "with hyperparameters miscalibrated for its actual objective.")
     return p.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Corrected-landscape helper (single source of canonical correction kwargs)
+# ---------------------------------------------------------------------------
+#
+# When --corrected-landscape is set, every per-seed optimizer call must apply
+# the same four corrections benchmark_engine.py applies (Phase 1 reference
+# at scripts/benchmark_engine.py:413-428):
+#   1. Static Gen-0 σ normalization — eliminates variance-dominance pathology.
+#   2. Smooth-min Jain (smooth_p=8) — gradient continuity at the bottleneck.
+#   3. Softplus hinge (smooth_k=10) — same, at the Moran's I null.
+#   4. √k-LSAP local-variance correction — variance-stabilization across degree.
+# The Gen-0 sample size (1000), seed offset (+99999) and use_local_variance_lisa
+# value match Phase 1 verbatim so σ values are on the same scale across phases.
+
+CORRECTED_GEN0_N_SAMPLES = 1000
+CORRECTED_GEN0_SEED_OFFSET = 99999
+CORRECTED_SMOOTH_P = 8.0
+CORRECTED_SMOOTH_K = 10.0
+
+
+def _corrected_eval_kw(initial_map, evaluator, seed: int) -> dict:
+    """
+    Build the corrections kwargs for one seed, mirroring benchmark_engine.py.
+
+    Returns a kwargs dict suitable for passing to improve_balance_spatial,
+    nsga2_optimize, sga_optimize, or improve_balance_tabu via **eval_kw.
+
+    Computes Gen-0 σ from 1,000 random permutations of the initial map's
+    topology (seeded at seed + CORRECTED_GEN0_SEED_OFFSET so it doesn't
+    collide with the optimization-side seeding), then bundles σ alongside
+    smooth/√k flags so the call site is one line.
+    """
+    from ti4_analysis.algorithms.map_topology import MapTopology
+    from ti4_analysis.algorithms.spatial_optimizer import compute_gen0_sigma
+
+    topo = MapTopology.from_ti4_map(initial_map, evaluator)
+    sigma = compute_gen0_sigma(
+        topo, evaluator, initial_map.copy(),
+        n_samples=CORRECTED_GEN0_N_SAMPLES,
+        random_seed=seed + CORRECTED_GEN0_SEED_OFFSET,
+        use_local_variance_lisa=True,
+    )
+    return dict(
+        normalizer_sigma=sigma,
+        use_smooth_objectives=True,
+        smooth_p=CORRECTED_SMOOTH_P,
+        smooth_k=CORRECTED_SMOOTH_K,
+        use_local_variance_lisa=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +169,7 @@ def objective_sa(trial, args, evaluator, generate_random_map, improve_balance_sp
             include_pok=True,
             random_seed=seed,
         )
+        eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
         score, _, _ = improve_balance_spatial(
             m, evaluator,
             iterations=args.iter_budget,
@@ -116,6 +177,7 @@ def objective_sa(trial, args, evaluator, generate_random_map, improve_balance_sp
             min_temp=min_t,
             random_seed=seed,
             verbose=False,
+            **eval_kw,
         )
         scores.append(score.composite_score())
         del m
@@ -141,6 +203,7 @@ def objective_nsga2(trial, args, evaluator, generate_random_map, nsga2_optimize)
             include_pok=True,
             random_seed=seed,
         )
+        eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
         front = nsga2_optimize(
             m, evaluator,
             generations=generations,
@@ -150,6 +213,7 @@ def objective_nsga2(trial, args, evaluator, generate_random_map, nsga2_optimize)
             warm_fraction=0,
             random_seed=seed,
             verbose=False,
+            **eval_kw,
         )
         best = min(front, key=lambda x: x[1].composite_score())[1]
         scores.append(best.composite_score())
@@ -176,6 +240,7 @@ def objective_sga(trial, args, evaluator, generate_random_map, sga_optimize):
             include_pok=True,
             random_seed=seed,
         )
+        eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
         score, _ = sga_optimize(
             m, evaluator,
             generations=generations,
@@ -185,6 +250,7 @@ def objective_sga(trial, args, evaluator, generate_random_map, sga_optimize):
             warm_fraction=warm_frac,
             random_seed=seed,
             verbose=False,
+            **eval_kw,
         )
         scores.append(score.composite_score())
         del m
@@ -233,12 +299,14 @@ def _run_ts_grid(args, run_dir: Path, evaluator, generate_random_map, improve_ba
                 include_pok=True,
                 random_seed=seed,
             )
+            eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
             score, _, _, _ = improve_balance_tabu(
                 m, evaluator,
                 max_evaluations=args.iter_budget,
                 tabu_tenure_coefficient=k,
                 random_seed=seed,
                 verbose=False,
+                **eval_kw,
             )
             scores.append(score.composite_score())
             del m
@@ -293,19 +361,15 @@ def main() -> int:
         "nsga2_pop": pop,
         "base_seed": args.base_seed,
         "players": args.players,
-        "started_at": datetime.now().isoformat(),
+        "corrected_landscape": bool(args.corrected_landscape),
     }
-    try:
-        import subprocess
-        config["git_hash"] = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except Exception:
-        config["git_hash"] = "unknown"
-
-    with open(run_dir / "run_config.json", "w") as f:
-        json.dump(config, f, indent=2)
+    # Audit follow-up: emit run_config via the canonical helper so this
+    # phase's artifacts pick up env fingerprint + per-file metric hashes
+    # alongside the existing fields. The `extra=config` plumbing preserves
+    # backward-compatible field names; `args=None` because the existing
+    # script already curated the config dict by hand.
+    from ti4_analysis.utils.run_config import write_run_config
+    write_run_config(run_dir, args=None, extra=config)
 
     print(f"Run directory : {run_dir}")
     print(f"Algorithm     : {args.algo.upper()}")
@@ -348,10 +412,12 @@ def main() -> int:
                 player_count=args.players, template_name="normal",
                 include_pok=True, random_seed=seed,
             )
+            eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
             s, _, _, _ = improve_balance_tabu(
                 m, evaluator, max_evaluations=args.iter_budget,
                 tabu_tenure_coefficient=best_k,
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             held_out_scores.append(s.composite_score())
             del m
@@ -470,7 +536,9 @@ def main() -> int:
 
     best_p = study.best_params
 
-    # Re-run best trial to get per-seed scores for cv_mean, cv_std
+    # Re-run best trial to get per-seed scores for cv_mean, cv_std.
+    # Per-seed eval_kw mirrors the trial-time landscape so cv_mean/std are
+    # measured under the same objective Optuna optimized against.
     cv_scores = []
     for i in range(args.eval_seeds):
         seed = args.base_seed + i
@@ -478,12 +546,14 @@ def main() -> int:
             player_count=args.players, template_name="normal",
             include_pok=True, random_seed=seed,
         )
+        eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
         if args.algo == "sa":
             s, _, _ = improve_balance_spatial(
                 m, evaluator, iterations=args.iter_budget,
                 initial_acceptance_rate=best_p["initial_acceptance_rate"],
                 min_temp=best_p["min_temp"],
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             cv_scores.append(s.composite_score())
         elif args.algo == "nsga2":
@@ -494,6 +564,7 @@ def main() -> int:
                 mutation_rate=best_p["mutation_rate"],
                 warm_fraction=0,
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             cv_scores.append(min(f[1].composite_score() for f in front))
         else:
@@ -504,6 +575,7 @@ def main() -> int:
                 mutation_rate=best_p["mutation_rate"],
                 warm_fraction=best_p["warm_fraction"],
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             cv_scores.append(s.composite_score())
         del m
@@ -518,12 +590,14 @@ def main() -> int:
             player_count=args.players, template_name="normal",
             include_pok=True, random_seed=seed,
         )
+        eval_kw = _corrected_eval_kw(m, evaluator, seed) if args.corrected_landscape else {}
         if args.algo == "sa":
             s, _, _ = improve_balance_spatial(
                 m, evaluator, iterations=args.iter_budget,
                 initial_acceptance_rate=best_p["initial_acceptance_rate"],
                 min_temp=best_p["min_temp"],
                 random_seed=seed, verbose=False,
+                **eval_kw,
             )
             held_out_scores.append(s.composite_score())
         elif args.algo in ("nsga2", "sga"):
@@ -535,6 +609,7 @@ def main() -> int:
                     mutation_rate=best_p["mutation_rate"],
                     warm_fraction=0,
                     random_seed=seed, verbose=False,
+                    **eval_kw,
                 )
                 held_out_scores.append(min(f[1].composite_score() for f in front))
             else:
@@ -544,6 +619,7 @@ def main() -> int:
                     mutation_rate=best_p["mutation_rate"],
                     warm_fraction=best_p["warm_fraction"],
                     random_seed=seed, verbose=False,
+                    **eval_kw,
                 )
                 held_out_scores.append(s.composite_score())
         del m
