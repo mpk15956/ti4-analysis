@@ -90,6 +90,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sa-rate",    type=float, default=0.80,    help="SA initial acceptance rate")
     p.add_argument("--sa-min-temp",type=float, default=0.01,    help="SA min temperature")
     p.add_argument("--output-dir", type=str,   default="output",help="Root output directory")
+    p.add_argument("--corrected-landscape", action="store_true",
+                   help="Run SA optimization under the canonical (corrected) fitness "
+                        "landscape: Gen-0 σ normalization, smooth-min Jain (p=8), "
+                        "softplus hinge (k=10), √k-LSAP local-variance correction. "
+                        "Also evaluates the threshold-sensitivity test on the canonical "
+                        "√k-stabilized LSAP form. Mirrors benchmark_engine.py's plumbing.")
     return p.parse_args()
 
 
@@ -99,7 +105,9 @@ def parse_args() -> argparse.Namespace:
 
 def run_sensitivity(args) -> List[dict]:
     from ti4_analysis.algorithms.map_generator import generate_random_map
-    from ti4_analysis.algorithms.spatial_optimizer import improve_balance_spatial
+    from ti4_analysis.algorithms.spatial_optimizer import (
+        improve_balance_spatial, compute_gen0_sigma,
+    )
     from ti4_analysis.algorithms.map_topology import MapTopology
     from ti4_analysis.algorithms.fast_map_state import FastMapState
     from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
@@ -111,6 +119,28 @@ def run_sensitivity(args) -> List[dict]:
         seed = args.base_seed + i
         try:
             ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
+
+            # Build the corrections kwargs once per seed if --corrected-landscape;
+            # mirrors the values benchmark_engine.py uses (n_samples=1000,
+            # seed offset +99999, smooth_p=8, smooth_k=10,
+            # use_local_variance_lisa=True). When the flag is off, eval_kw is
+            # empty and SA optimizes the legacy raw-LSAP landscape.
+            eval_kw = {}
+            if args.corrected_landscape:
+                topo = MapTopology.from_ti4_map(ti4_map, evaluator)
+                sigma = compute_gen0_sigma(
+                    topo, evaluator, ti4_map.copy(),
+                    n_samples=1000, random_seed=seed + 99999,
+                    use_local_variance_lisa=True,
+                )
+                eval_kw = dict(
+                    normalizer_sigma=sigma,
+                    use_smooth_objectives=True,
+                    smooth_p=8.0,
+                    smooth_k=10.0,
+                    use_local_variance_lisa=True,
+                )
+
             t0 = time.time()
             best_score, _, _ = improve_balance_spatial(
                 ti4_map,
@@ -118,14 +148,30 @@ def run_sensitivity(args) -> List[dict]:
                 iterations=args.budget,
                 initial_acceptance_rate=args.sa_rate,
                 min_temp=args.sa_min_temp,
+                **eval_kw,
             )
             elapsed = time.time() - t0
 
             topology = MapTopology.from_ti4_map(ti4_map, evaluator)
             fast = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
 
-            baseline_lsap    = fast.lisa_penalty()
-            thresholded_lsap = fast.lisa_penalty_thresholded(tau=args.tau)
+            # Goodhart Test 3 is a same-form comparison: baseline (no threshold)
+            # vs thresholded, holding everything else (domain, √k stabilization)
+            # fixed. Under canonical this means baseline =
+            # lisa_penalty_swappable(use_local_variance=True) and thresholded =
+            # lisa_penalty_swappable_thresholded(tau, use_local_variance=True);
+            # under legacy it means baseline = lisa_penalty() and thresholded =
+            # lisa_penalty_thresholded(tau). Mixing forms across the comparison
+            # (e.g. canonical baseline vs raw thresholded) produces a
+            # malformed test that does not isolate the threshold effect.
+            if args.corrected_landscape and hasattr(fast, "lisa_penalty_swappable_thresholded"):
+                baseline_lsap = fast.lisa_penalty_swappable(use_local_variance=True)
+                thresholded_lsap = fast.lisa_penalty_swappable_thresholded(
+                    tau=args.tau, use_local_variance=True
+                )
+            else:
+                baseline_lsap = fast.lisa_penalty()
+                thresholded_lsap = fast.lisa_penalty_thresholded(tau=args.tau)
 
             rows.append({
                 "seed":            seed,

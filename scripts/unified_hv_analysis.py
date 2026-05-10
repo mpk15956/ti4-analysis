@@ -4,16 +4,23 @@ Unified Hypervolume (HV) analysis for all algorithms.
 
 Uses the empirical Pareto fronts saved by `benchmark_engine.py` in
 `unified_archives/` to compute HV for each (algorithm, seed, budget) in the
-common 3-objective space:
+common canonical 3-objective space:
 
-    (1 − jains_index, |morans_i|, lisa_penalty)
+    (1 − jains_index, max(0, morans_i - E[I]), lisa_penalty)
+
+via `MultiObjectiveScore.archive_row_to_pareto_point` — the SINGLE-SOURCE
+canonical transformation also used by NSGA-II during the run for Pareto
+dominance and crowding (see methodology §3.1 / §3.4). Inline alternatives
+like `(1-jfi, abs(mi), lp)` produce different rankings on the spatial  # noqa: canonical-transform
+dimension and have caused silent drift before
+(see `feedback_canonical_objective_single_source.md`).
 
 This places scalar algorithms (RS, HC, SA, SGA, TS) and NSGA-II on the same
 objective footing. For each run we:
 
   1. Load its empirical front (non-dominated MultiObjectiveScore snapshots
      extracted from the logged run history).
-  2. Transform to minimisation objectives as above.
+  2. Transform to minimisation objectives via the canonical helper.
   3. Compute Hypervolume against a common reference point (auto = worst
      observed across all algorithms × 1.1, or user-specified).
 
@@ -41,6 +48,13 @@ from typing import Dict, List, Tuple
 import numpy as np
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
+
+from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
+
+# Canonical 6-player layout has |G| = 31 by the §3.3 derivation. Every consumer
+# of the canonical objective transformation must use this n_spatial; if the
+# archive comes from a different layout, the per-row hinge term changes.
+CANONICAL_N_SPATIAL = 31
 
 
 # ── Hypervolume (HV) — copied in minimal form to avoid circular imports ─────
@@ -194,21 +208,20 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_unified_archive(csv_path: Path) -> np.ndarray:
+def load_unified_archive(csv_path: Path, n_spatial: int = CANONICAL_N_SPATIAL) -> np.ndarray:
     """
-    Load a unified archive CSV into an (N, 3) array of objective values.
-
-    Expected columns: jains_index, morans_i, lisa_penalty
-    Converts to minimisation objectives: (1-JFI, |morans_i|, lisa_penalty).
+    Load a unified archive CSV into an (N, 3) array of canonical Pareto-objective
+    values. Expected columns: jains_index, morans_i, lisa_penalty. Each row is
+    transformed via `MultiObjectiveScore.archive_row_to_pareto_point` — the
+    SINGLE-SOURCE canonical transformation. Returns
+    `(1 - jains_index, max(0, morans_i - E[I]), lisa_penalty)` — the same  # noqa: canonical-transform
+    tuple NSGA-II uses for Pareto dominance during the run.
     """
     rows = []
     with open(csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
-            jfi = float(row["jains_index"])
-            mi = float(row["morans_i"])
-            lp = float(row["lisa_penalty"])
-            rows.append([1.0 - jfi, abs(mi), lp])
+            rows.append(MultiObjectiveScore.archive_row_to_pareto_point(row, n_spatial))
     return np.array(rows) if rows else np.empty((0, 3))
 
 
@@ -306,7 +319,7 @@ def run_stats(hv_table: List[Dict], budget: int, out_path: Path) -> None:
             a_stat = vargha_delaney_a(x, y)
             pairs.append((a, b))
             raw_pvalues.append(p_val)
-            stats_rows.append((a, b, W_stat, p_val, a_stat))
+            stats_rows.append((W_stat, p_val, a_stat))
 
     if raw_pvalues:
         reject, corrected, _, _ = multipletests(raw_pvalues, method="holm")
@@ -331,6 +344,19 @@ def main() -> int:
 
     output_dir = Path(args.output_dir) if args.output_dir else archive_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Provenance assertions before any HV math runs. The transform-identity
+    # canary catches helper drift; the producer-formulation check catches the
+    # case where unified_archives/ comes from a benchmark run under a
+    # different canonical regime than the consumer assumes.
+    from ti4_analysis.utils.canonical_provenance import (
+        assert_canonical_formulation, assert_archive_transform_identity,
+    )
+    benchmark_run_dir = archive_dir.parent
+    cfg = assert_canonical_formulation(benchmark_run_dir)
+    assert_archive_transform_identity(CANONICAL_N_SPATIAL)
+    print(f"Provenance OK: canonical_formulation v{cfg['canonical_formulation']['version']}, "
+          f"git_hash={cfg.get('git_hash', 'unknown')}")
 
     hv_files = sorted(archive_dir.glob("unified_archive_algo*_seed*_b*.csv"))
     if not hv_files:

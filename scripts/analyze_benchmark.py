@@ -26,7 +26,7 @@ import sys
 import textwrap
 from itertools import combinations
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -134,6 +134,12 @@ METRICS = [
     "composite_score", "morans_i", "jains_index",
     "jfi_resources", "jfi_influence",
     "lisa_penalty", "balance_gap",
+    # `evals_to_best` is the canonical anytime-performance metric (Hutter et
+    # al. 2019) cited in §3.10 RQ4. Including it in METRICS routes the same
+    # Friedman + pairwise Wilcoxon + Holm + VDA + d_z + bootstrap CI panel
+    # over evals_to_best as over composite_score; closes RQ4 in the same
+    # invocation that closes RQ1.
+    "evals_to_best",
 ]
 ALGO_ORDER = ["rs", "hc", "sa", "sga", "nsga2", "ts"]
 
@@ -152,8 +158,14 @@ def load_and_validate(csv_path: Path, budget: int = None) -> pd.DataFrame:
         n_chains = df["chain_id"].nunique()
         group_cols = [c for c in ["seed", "algorithm", "budget", "condition", "weight_vector"]
                       if c in df.columns]
-        numeric_cols = [c for c in METRICS + ["evals_to_best"]
-                        if c in df.columns]
+        # Dedupe: METRICS now includes "evals_to_best" (added for RQ4); the
+        # historic `+ ["evals_to_best"]` would otherwise produce a duplicate
+        # column post-groupby and break downstream pivots with shape (N, 2).
+        seen, numeric_cols = set(), []
+        for c in METRICS + ["evals_to_best"]:
+            if c in df.columns and c not in seen:
+                numeric_cols.append(c)
+                seen.add(c)
         df = df.groupby(group_cols)[numeric_cols].mean().reset_index()
         print(f"  Aggregated {n_chains} chains → {len(df)} rows (mean across chains)")
 
@@ -220,23 +232,33 @@ def shapiro_wilk_on_diffs(df: pd.DataFrame, alpha: float = 0.05) -> List[Dict]:
     return results
 
 
-def friedman_test(df: pd.DataFrame) -> Dict:
-    """Friedman omnibus test across all algorithms for composite_score."""
-    wide = df.pivot(index="seed", columns="algorithm", values="composite_score").dropna()
+def friedman_test(df: pd.DataFrame, metric: str = "composite_score") -> Dict:
+    """Friedman omnibus test across all algorithms for the named metric.
+    Default `composite_score` matches RQ1; pass `evals_to_best` for RQ4."""
+    if metric not in df.columns:
+        return {"metric": metric, "chi2": np.nan, "p_friedman": np.nan, "df": 0, "n": 0,
+                "significant": False, "note": f"metric {metric!r} not in df"}
+    wide = df.pivot(index="seed", columns="algorithm", values=metric).dropna()
     algos = [a for a in ALGO_ORDER if a in wide.columns]
     if len(algos) < 3:
-        return {"chi2": np.nan, "p_friedman": np.nan, "df": 0, "n": 0,
+        return {"metric": metric, "chi2": np.nan, "p_friedman": np.nan, "df": 0, "n": 0,
                 "significant": False, "note": f"Need ≥3 algorithms, got {len(algos)}"}
 
     arrays = [wide[a].values for a in algos]
     chi2, p = stats.friedmanchisquare(*arrays)
     return {
+        "metric": metric,
         "chi2": chi2,
         "p_friedman": p,
         "df": len(algos) - 1,
         "n": len(wide),
         "significant": p < 0.05,
     }
+
+
+# Metrics that get a Friedman omnibus + bootstrap CI panel in the report.
+# composite_score closes RQ1; evals_to_best closes RQ4.
+FRIEDMAN_METRICS = ["composite_score", "evals_to_best"]
 
 
 def pairwise_wilcoxon(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
@@ -285,10 +307,14 @@ def pairwise_wilcoxon(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def bootstrap_cis(df: pd.DataFrame, n_boot: int = 10_000, alpha: float = 0.05) -> pd.DataFrame:
-    """Bootstrap 95% CIs on median difference for composite_score."""
+def bootstrap_cis(df: pd.DataFrame, n_boot: int = 10_000, alpha: float = 0.05,
+                  metric: str = "composite_score") -> pd.DataFrame:
+    """Bootstrap 95% CIs on median difference for the named metric.
+    Default `composite_score` matches RQ1; pass `evals_to_best` for RQ4."""
     algos = [a for a in ALGO_ORDER if a in df["algorithm"].unique()]
-    wide = df.pivot(index="seed", columns="algorithm", values="composite_score").dropna()
+    if metric not in df.columns:
+        return pd.DataFrame()
+    wide = df.pivot(index="seed", columns="algorithm", values=metric).dropna()
     rng = np.random.default_rng(42)
     rows = []
     for a, b in combinations(algos, 2):
@@ -317,6 +343,8 @@ def format_report(
     wilcoxon_df: pd.DataFrame,
     boot_df: pd.DataFrame,
     alpha: float,
+    *,
+    friedman_etb: Optional[Dict] = None,
 ) -> str:
     lines = []
     w = lines.append
@@ -356,10 +384,17 @@ def format_report(
 
     # 3. Friedman
     w(f"\n{rule}")
-    w("3. FRIEDMAN OMNIBUS TEST (composite_score)")
+    w("3. FRIEDMAN OMNIBUS TEST")
     w("-" * 90)
-    w(f"  chi2 = {friedman['chi2']:.4f},  df = {friedman['df']},  "
+    w(f"  composite_score (RQ1):  chi2 = {friedman['chi2']:.4f},  df = {friedman['df']},  "
       f"p = {friedman['p_friedman']:.6f},  n = {friedman['n']}")
+    if friedman_etb is not None:
+        if friedman_etb.get("note"):
+            w(f"  evals_to_best  (RQ4):  {friedman_etb['note']}")
+        else:
+            w(f"  evals_to_best  (RQ4):  chi2 = {friedman_etb['chi2']:.4f},  "
+              f"df = {friedman_etb['df']},  p = {friedman_etb['p_friedman']:.6f},  "
+              f"n = {friedman_etb['n']}")
     if friedman["significant"]:
         w("  >> SIGNIFICANT — proceed to pairwise post-hoc tests.")
     else:
@@ -792,8 +827,18 @@ def main() -> int:
     print(f"   {n_nonnormal}/{len(shapiro)} pairs show non-normal differences")
 
     print("\n── Friedman omnibus test ──")
-    friedman = friedman_test(df)
-    print(f"   chi2={friedman['chi2']:.4f}, p={friedman['p_friedman']:.6f}")
+    friedman = friedman_test(df, metric="composite_score")
+    print(f"   composite_score: chi2={friedman['chi2']:.4f}, p={friedman['p_friedman']:.6f}")
+
+    # RQ4: Friedman on evals_to_best (the canonical anytime-performance metric,
+    # Hutter et al. 2019). Stored alongside composite_score's Friedman so the
+    # report panels both omnibus tests.
+    friedman_etb = friedman_test(df, metric="evals_to_best")
+    if "note" in friedman_etb:
+        print(f"   evals_to_best:   {friedman_etb['note']}")
+    else:
+        print(f"   evals_to_best:   chi2={friedman_etb['chi2']:.4f}, "
+              f"p={friedman_etb['p_friedman']:.6f}")
 
     print("\n── Wilcoxon pairwise + Holm-Bonferroni ──")
     wilcoxon_df = pairwise_wilcoxon(df, args.alpha)
@@ -801,10 +846,20 @@ def main() -> int:
     print(f"   {n_sig}/{len(wilcoxon_df)} comparisons significant after correction")
 
     print(f"\n── Bootstrap CIs ({args.n_boot} resamples) ──")
-    boot_df = bootstrap_cis(df, args.n_boot, args.alpha)
+    boot_df = bootstrap_cis(df, args.n_boot, args.alpha, metric="composite_score")
+    boot_etb_df = bootstrap_cis(df, args.n_boot, args.alpha, metric="evals_to_best")
+    if not boot_etb_df.empty:
+        boot_etb_df["metric"] = "evals_to_best"
+        if not boot_df.empty:
+            boot_df["metric"] = "composite_score"
+            boot_df = pd.concat([boot_df, boot_etb_df], ignore_index=True)
+        else:
+            boot_df = boot_etb_df
 
-    # Write outputs
-    report = format_report(desc, shapiro, friedman, wilcoxon_df, boot_df, args.alpha)
+    # Write outputs. Pass both Friedman dicts so the report can panel
+    # composite_score (RQ1) and evals_to_best (RQ4) side-by-side.
+    report = format_report(desc, shapiro, friedman, wilcoxon_df, boot_df, args.alpha,
+                           friedman_etb=friedman_etb)
 
     report_path = out_dir / "full_report.txt"
     report_path.write_text(report)

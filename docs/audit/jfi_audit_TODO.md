@@ -1,11 +1,21 @@
-# JFI audit — TODO
+# JFI audit — RESOLVED (May 2026)
 
-**Status:** Flagged but not addressed in the May 2026 audit pass. Documents
-what a future audit pass would investigate so the framework looks complete
-on day one rather than partial.
+**Status:** Originally flagged in the May 2026 audit pass as a category-2
+parallel-implementations risk. **Resolved** by the parity test work in
+`tests/test_metric_parity.py` (May 2026, post-audit) which pins
+`FastMapState._jfi` ↔ `spatial_metrics.jains_fairness_index` agreement at
+bit-equality on the canonical 6p layout, plus golden-value tests on the
+JFI degenerate conventions (n=0, sum_sq=0, perfect-fairness, max-unfairness).
+Same-shape parity tests cover Moran's I as well. The original concern
+("the two implementations may have silently diverged on edge-case
+conventions") is now mechanically asserted and any future drift fires
+the test loud.
 
-**Category:** 2 (parallel implementations) plus possibly category 3 (if the
-two implementations' edge-case conventions differ).
+This file is retained as historical context for what the audit framework
+was designed to catch and how the resolution landed; it is no longer an
+open follow-up.
+
+**Category:** 2 (parallel implementations) — closed by `tests/test_metric_parity.py`.
 
 ## Question
 

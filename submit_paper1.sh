@@ -47,7 +47,15 @@ if [ ! -f "$SIF" ]; then
     exit 1
 fi
 
-APPTAINER="apptainer exec --bind $PWD/output:/app/output --pwd /app $SIF"
+# Forward git state from host into the container so run_config.json records
+# the host's git_hash (the SIF has no git on PATH and no .git bind-mounted).
+# See run_config._git_state and feedback_canonical_objective_single_source.md.
+HOST_GIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+HOST_GIT_DIRTY="$([ -n "$(git status --porcelain 2>/dev/null)" ] && echo 1 || echo 0)"
+APPTAINER="apptainer exec \
+    --env TI4_GIT_HASH=$HOST_GIT_HASH \
+    --env TI4_GIT_DIRTY=$HOST_GIT_DIRTY \
+    --bind $PWD/output:/app/output --pwd /app $SIF"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 RUN_TAG="paper1_canonical_$(date +%Y%m%d_%H%M%S)"

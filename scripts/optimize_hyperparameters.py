@@ -142,13 +142,12 @@ def _corrected_eval_kw(initial_map, evaluator, seed: int) -> dict:
 
 def _nsga2_budget(iter_budget: int):
     """
-    Factorize iter_budget into (generations, pop_size) with pop ≥ 10, gen ≥ 5.
-
-    Example: iter_budget=200 → pop=14, gen=14 (196 evals).
+    Single-source NSGA-II budget factorization. Imported from
+    `ti4_analysis.algorithms.budget_factorization` so the tuner and
+    benchmark engine cannot disagree on (pop, gen) for a given budget.
     """
-    pop_size    = max(10, int(math.sqrt(iter_budget)))
-    generations = max(5,  iter_budget // pop_size)
-    return generations, pop_size
+    from ti4_analysis.algorithms.budget_factorization import nsga2_budget
+    return nsga2_budget(iter_budget)
 
 
 # ---------------------------------------------------------------------------

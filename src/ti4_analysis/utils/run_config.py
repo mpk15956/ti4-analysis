@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -149,7 +150,34 @@ def _is_jsonable(value: Any) -> bool:
 
 
 def _git_state() -> tuple[str, bool]:
-    """Return (short_hash, is_dirty). Both fields default safely on failure."""
+    """Return (short_hash, is_dirty). Both fields default safely on failure.
+
+    Resolution order:
+
+      1. Environment variables `TI4_GIT_HASH` and `TI4_GIT_DIRTY` if set —
+         the orchestrator (host shell) passes these in via apptainer's
+         `--env`, so the container's run_config records the host's git
+         state at job submission. Without this, runs inside the container
+         silently record `git_hash: "unknown"` because the container has
+         neither `git` on PATH nor `.git` bind-mounted, which loses the
+         provenance the audit framework depends on.
+      2. `git rev-parse --short HEAD` from the cwd, as the host-side
+         fallback when the env vars aren't set (i.e., when the script is
+         run directly on the host instead of through apptainer).
+      3. `("unknown", False)` if both above fail.
+
+    `TI4_GIT_DIRTY` is interpreted as truthy if it equals `"1"`, `"true"`,
+    or `"True"` (case-insensitive); any other value (including missing) is
+    treated as clean. The orchestrator computes dirtiness via
+    `git status --porcelain` on the host and converts to "1"/"0".
+    """
+    env_hash = os.environ.get("TI4_GIT_HASH", "").strip()
+    env_dirty_raw = os.environ.get("TI4_GIT_DIRTY", "").strip().lower()
+    env_dirty = env_dirty_raw in ("1", "true", "yes")
+
+    if env_hash:
+        return env_hash, env_dirty
+
     try:
         short = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],

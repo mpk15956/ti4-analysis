@@ -110,7 +110,7 @@ def search_for_pair(args, evaluator):
         # Check all previously collected seeds for a match
         for prev in results[:-1]:
             jfi_diff = abs(jfi - prev["jains_index"])
-            mi_diff  = abs(mi  - prev["morans_i"])
+            mi_diff  = abs(mi  - prev["morans_i"])  # noqa: canonical-transform (between-seed difference, not canonical hinge)
             if jfi_diff < args.eps and mi_diff > args.delta:
                 print(
                     f"  Pair found: seed {prev['seed']} (JFI={prev['jains_index']:.4f}, "
@@ -217,7 +217,7 @@ def main() -> int:
         "seed_a":    seed_a_metrics,
         "seed_b":    seed_b_metrics,
         "jfi_diff":  round(abs(seed_a_metrics["jains_index"] - seed_b_metrics["jains_index"]), 6),
-        "mi_diff":   round(abs(seed_a_metrics["morans_i"]    - seed_b_metrics["morans_i"]),    6),
+        "mi_diff":   round(abs(seed_a_metrics["morans_i"]    - seed_b_metrics["morans_i"]),    6),  # noqa: canonical-transform (between-seed difference)
         "eps":       args.eps,
         "delta":     args.delta,
         "sa_budget": args.sa_budget,

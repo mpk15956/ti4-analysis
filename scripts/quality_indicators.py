@@ -24,6 +24,14 @@ from typing import List, Tuple
 
 import numpy as np
 
+from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
+
+# Canonical 6-player layout has |G| = 31 by the §3.3 derivation. This must
+# match the n_spatial the benchmark engine used to produce the archive; if
+# the archive comes from a different layout, the per-row pareto-objective
+# tuple's hinge term shifts. Pre-flight assertion lives in main().
+CANONICAL_N_SPATIAL = 31
+
 
 # ── Hypervolume (HV) ─────────────────────────────────────────────────────────
 
@@ -152,21 +160,22 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_pareto_archive(csv_path: Path) -> np.ndarray:
+def load_pareto_archive(csv_path: Path, n_spatial: int = CANONICAL_N_SPATIAL) -> np.ndarray:
     """
-    Load a Pareto archive CSV into an (N, 3) array of objective values.
-
-    Expected columns: jains_index, morans_i, lisa_penalty
-    Converts to minimisation objectives: (1-JFI, |morans_i|, lisa_penalty)
+    Load a Pareto archive CSV into an (N, 3) array of canonical Pareto-objective
+    values. Expected columns: jains_index, morans_i, lisa_penalty.
+    Each row is transformed via `MultiObjectiveScore.archive_row_to_pareto_point`
+    — the SINGLE-SOURCE canonical transformation that returns
+    `(1 - jains_index, max(0, morans_i - E[I]), lisa_penalty)`.  # noqa: canonical-transform
+    Do NOT
+    re-implement the transformation inline; the helper is the contract
+    (see `feedback_canonical_objective_single_source.md`).
     """
     rows = []
     with open(csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
-            jfi = float(row["jains_index"])
-            mi = float(row["morans_i"])
-            lp = float(row["lisa_penalty"])
-            rows.append([1.0 - jfi, abs(mi), lp])
+            rows.append(MultiObjectiveScore.archive_row_to_pareto_point(row, n_spatial))
     return np.array(rows) if rows else np.empty((0, 3))
 
 
@@ -178,6 +187,19 @@ def main() -> int:
     if not archive_dir.exists():
         print(f"ERROR: {archive_dir} does not exist", file=sys.stderr)
         return 1
+
+    # Provenance assertions: canonical-formulation invariants on the producer
+    # side + transform-identity canary on the consumer side. Both fire BEFORE
+    # any HV/IGD math runs; failure surfaces as a clean error instead of a
+    # silently miscalibrated number.
+    from ti4_analysis.utils.canonical_provenance import (
+        assert_canonical_formulation, assert_archive_transform_identity,
+    )
+    benchmark_run_dir = archive_dir.parent
+    cfg = assert_canonical_formulation(benchmark_run_dir)
+    assert_archive_transform_identity(CANONICAL_N_SPATIAL)
+    print(f"Provenance OK: canonical_formulation v{cfg['canonical_formulation']['version']}, "
+          f"git_hash={cfg.get('git_hash', 'unknown')}")
 
     archive_files = sorted(archive_dir.glob("pareto_archive_seed*.csv"))
     if not archive_files:

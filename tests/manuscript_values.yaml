@@ -67,7 +67,10 @@ entries:
   # ── Tier 2: section-anchored ──
   # Distance-weight τ = 1.000 lives in §3.2's claim that algorithm rankings
   # are weight-invariant. Anchoring to §3.2 prevents collision with a
-  # hypothetical other "1.000" elsewhere in the manuscript.
+  # hypothetical other "1.000" elsewhere in the manuscript. Canonical Phase 5
+  # value computed directly from sensitivity_results.csv (the canonical run
+  # did not write a sensitivity_report.txt, so the verifier computes Kendall τ
+  # from the CSV across all 15 pairwise weight-config comparisons).
   - key: distance_weight_kendall_tau
     raw_value: 1.000
     format: "{:.3f}"
@@ -75,33 +78,43 @@ entries:
       - docs/methodology/Methodology_Section.md
     match: section
     section_anchor: "3.2"
-    source_artifact: output/saturation_20260314_205919/dist_sensitivity_20260316_100535/sensitivity_report.txt
-    verifier: distance_weight_tau_from_sensitivity_report
+    source_artifact: output/paper1_canonical_20260509_134024/dist_sensitivity_20260509_204651/sensitivity_results.csv
+    verifier: distance_weight_tau_canonical_from_csv
     min_count: 1
 
-  # ── Tier 3: explicit regex ──
-  # Goodhart ρ from the LISA proxy validation, α=0.05 saturated target.
-  # The regex anchors to the LaTeX "$\rho = -0.025$" form found in both the
-  # goodhart doc and limitations.md (after the May 2026 reframe). The token
-  # "-0.025" might collide with other rounded values, so Tier 3 is the safer
-  # choice. files spans both manuscript-active locations the value appears in.
-  - key: goodhart_rho_alpha05_legacy
-    raw_value: -0.024859
+  # ── Tier 3: Canonical Goodhart ρ at α=0.05 saturated target ──
+  # Canonical Phase 4 (n=30 SA-optimized maps under corrected landscape).
+  # The regex anchors to the LaTeX "$\rho = +0.071$" form found in both
+  # limitations.md (Test 1) and lsap-proxy-goodhart.md (headline summary).
+  # files spans both manuscript-active locations.
+  - key: goodhart_rho_alpha05_canonical
+    raw_value: 0.07051192366479302
     format: "{:+.3f}"
     files:
       - docs/limitations/lsap-proxy-goodhart.md
       - docs/limitations/limitations.md
     match: regex
-    pattern: '\\rho\s*=\s*-0\.025'
-    source_artifact: output/saturation_20260314_205919/lisa_validation_20260316_100413/proxy_validation_summary.json
-    verifier: goodhart_rho_alpha05_from_summary_json
+    pattern: '\\rho\s*=\s*\+0\.071'
+    source_artifact: output/paper1_canonical_20260509_134024/lisa_validation_20260509_204628/proxy_validation_summary.json
+    verifier: goodhart_rho_alpha05_canonical_from_summary_json
     min_count: 1
 
-  # ── Tier 1: Goodhart ρ under FDR-corrected target ──
-  # The "+0.189" rendered token is unique enough across both files for Tier 1;
-  # if a future addition introduces another "+0.189", the validator's collision
-  # check will flag it and we escalate to Tier 3.
-  - key: goodhart_rho_fdr
+  # ── Tier 1: Canonical Goodhart ρ under FDR-corrected target ──
+  # Canonical value +0.290 from per-map diagnostic against canonical Phase 4.
+  # The legacy +0.189 still appears in both files as a comparison value
+  # against the larger n=120 legacy validation set — kept as a separate entry.
+  - key: goodhart_rho_fdr_canonical
+    raw_value: 0.289631335424705
+    format: "{:+.3f}"
+    files:
+      - docs/limitations/lsap-proxy-goodhart.md
+      - docs/limitations/limitations.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/lisa_validation_20260509_204628/lisa_proxy_per_map_diagnostic.json
+    verifier: goodhart_rho_fdr_canonical_from_diagnostic
+    min_count: 1
+
+  - key: goodhart_rho_fdr_legacy
     raw_value: 0.18899593802830467
     format: "{:+.3f}"
     files:
@@ -113,10 +126,10 @@ entries:
     min_count: 1
 
   # ── Tier 1: Threshold-sensitivity Kendall τ ──
-  # Cited in both lsap-proxy-goodhart.md and limitations.md as the
-  # ranking-preservation defence value. Token "0.949" is sufficiently
-  # specific; same collision-escalation policy as goodhart_rho_fdr.
-  - key: lsap_threshold_kendall_tau
+  # Legacy raw-I_i form (60 seeds × 4 algos, budget 1000). Cited as the
+  # historical reference point against which the canonical-form result is
+  # contrasted. Token "0.949" is sufficiently specific.
+  - key: lsap_threshold_kendall_tau_legacy
     raw_value: 0.949388
     format: "{:.3f}"
     files:
@@ -125,6 +138,21 @@ entries:
     match: token
     source_artifact: output/saturation_20260314_205919/lsap_threshold_20260316_194325/lsap_threshold_summary.json
     verifier: lsap_threshold_tau_from_summary_json
+    min_count: 1
+
+  # Canonical same-form (√k-stabilized swappable LSAP, baseline vs τ=0.05
+  # threshold; 50 SA seeds, budget 1000, --corrected-landscape). The
+  # operative Goodhart Test 3 result for the manuscript's defence narrative.
+  # Fails the pre-registered τ > 0.90 threshold; reported honestly.
+  - key: lsap_threshold_kendall_tau_canonical
+    raw_value: 0.533061
+    format: "{:.4f}"
+    files:
+      - docs/limitations/lsap-proxy-goodhart.md
+      - docs/limitations/limitations.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/lsap_threshold_20260509_231008/lsap_threshold_summary.json
+    verifier: lsap_threshold_tau_canonical_from_summary_json
     min_count: 1
 
   # ── §3.8 convergence variance shares (post-fix May 6 CSV; on-disk artifact) ──
@@ -151,19 +179,311 @@ entries:
     verifier: convergence_jfi_share_under_1_1_1
     min_count: 1
 
-  # ── §3.7 Phase 0 SA tuning canonical numbers — DELIBERATELY OMITTED ──
-  # When canonical Phase 0 lands at output/paper1_canonical_*/optuna_*/best_params.json,
-  # FOUR entries get added here: phase0_sa_cv_mean, phase0_sa_cv_std,
-  # phase0_sa_held_out_mean, phase0_sa_held_out_std — each with a verifier
-  # function that reads best_params.json and asserts raw_value matches.
-  # Per the May 2026 manuscript-values discussion, we do NOT pre-author these
-  # entries with `verifier: null` because that pattern silently weakens the
-  # gate's guarantee: a green gate covering verifier-null entries asserts
-  # only "verified-or-stubbed", not "verified-only", which a future reader
-  # could misinterpret. The manuscript's §3.7(B) prose carries
-  # PENDING_CANONICAL_PHASE_0 placeholder markers that the pre-submission
-  # gate's placeholder regex catches; the gate fires red until both the
-  # prose and the manifest are filled in together when canonical lands.
+  # ── §3.7 Phase 0 SA tuning canonical numbers (May 9 2026) ──
+  # Phase 0 of canonical Job 28173 produced best_params.json after 338.2 min
+  # of optuna tuning. The four cv/held-out values cited in §3.7(B) below are
+  # tracked here. Verifiers read the live JSON; if a future re-tune produces
+  # different values, the verifier fires red against the manifest's pinned
+  # raw_value, the manuscript's §3.7(B) prose drifts from the artifact, and
+  # the gate goes red — exactly the chain the validator infrastructure exists
+  # to enforce.
+
+  - key: phase0_sa_cv_mean
+    raw_value: 0.091411
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/optuna_20260509_134028/best_params.json
+    verifier: phase0_sa_cv_mean_from_best_params
+    min_count: 1
+
+  - key: phase0_sa_cv_std
+    raw_value: 0.044724
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/optuna_20260509_134028/best_params.json
+    verifier: phase0_sa_cv_std_from_best_params
+    min_count: 1
+
+  - key: phase0_sa_held_out_mean
+    raw_value: 0.087246
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/optuna_20260509_134028/best_params.json
+    verifier: phase0_sa_held_out_mean_from_best_params
+    min_count: 1
+
+  - key: phase0_sa_held_out_std
+    raw_value: 0.042321
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/optuna_20260509_134028/best_params.json
+    verifier: phase0_sa_held_out_std_from_best_params
+    min_count: 1
+
+  # ── §3.9 Ablation Study canonical numbers (Phase 1, May 9 2026) ──
+  # Headline result of the paper. C0 (jfi_only) and C4 (full_composite) at
+  # budget=500k, computed as median across 100 seeds × 3 chains = 300 obs
+  # per (condition, budget) cell. Single shared verifier reads results.csv
+  # once per call and selects the (condition, metric) cell.
+
+  # Canonical boundary-violations count: rows of Phase 1 results.csv where
+  # morans_i < -1.0. Cited as "29 of 12,000 (0.242%)" in §3.3 + limitations.md.
+  # The "29" token is sufficiently specific given the surrounding regex match.
+  - key: phase1_morans_i_lt_neg1_count
+    raw_value: 29
+    format: "{}"
+    files:
+      - docs/methodology/Methodology_Section.md
+      - docs/limitations/limitations.md
+    match: regex
+    pattern: "(?P<value>29) of 12,?000"
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_morans_i_lt_neg1_count
+    min_count: 1
+
+  - key: phase1_c0_morans_i_median_b500k
+    raw_value: -0.09861666666666669
+    format: "{:+.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c0_morans_i_b500k
+    min_count: 1
+
+  - key: phase1_c4_morans_i_median_b500k
+    raw_value: -0.6713833333333334
+    format: "{:+.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c4_morans_i_b500k
+    min_count: 1
+
+  - key: phase1_c0_lisa_penalty_median_b500k
+    raw_value: 4.457083333333333
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c0_lisa_penalty_b500k
+    min_count: 1
+
+  - key: phase1_c3_lisa_penalty_median_b500k
+    raw_value: 0.9674333333333334
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c3_lisa_penalty_b500k
+    min_count: 1
+
+  - key: phase1_c4_lisa_penalty_median_b500k
+    raw_value: 0.0
+    format: "{:.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c4_lisa_penalty_b500k
+    min_count: 1
+
+  - key: phase1_c3_morans_i_median_b500k
+    raw_value: -0.5926333333333334
+    format: "{:+.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c3_morans_i_b500k
+    min_count: 1
+
+  # ── §3.9 ablation stats: Friedman χ² omnibus ──
+  # All three are df=4, p << 1e-70. Cited as the omnibus result preceding
+  # the pairwise C0 vs Cx Wilcoxon panel. Tolerance 1e-2 in the verifier.
+
+  - key: phase1_friedman_chi2_morans_i
+    raw_value: 349.8160
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_friedman_chi2_morans_i
+    min_count: 1
+
+  - key: phase1_friedman_chi2_lisa_penalty
+    raw_value: 384.8797
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_friedman_chi2_lisa_penalty
+    min_count: 1
+
+  - key: phase1_friedman_chi2_jains_index
+    raw_value: 367.1433
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_friedman_chi2_jains_index
+    min_count: 1
+
+  # ── §3.9 headline C0→C4 paired deltas ──
+  # The §3.9 prose cites Δ(Moran's I) = +0.5728 and Δ(LSAP) = +4.4571 as
+  # the C0→C4 contrasts; these are the median paired differences (C0 - C4)
+  # over n=100 seeds (chain-mean aggregated). Sign convention matches the
+  # prose ("C4 reduces Moran's I and LSAP relative to C0").
+
+  - key: phase1_c0_vs_c4_morans_i_median_diff
+    raw_value: 0.572767
+    format: "{:+.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c0_vs_c4_morans_i_median_diff
+    min_count: 1
+
+  - key: phase1_c0_vs_c4_lisa_penalty_median_diff
+    raw_value: 4.457083
+    format: "{:+.4f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c0_vs_c4_lisa_penalty_median_diff
+    min_count: 1
+
+  # ── §3.9 Cohen's d_z paired effect size for C0→C4 (Lakens 2013) ──
+  - key: phase1_c0_vs_c4_morans_i_cohens_dz
+    raw_value: 5.018589
+    format: "{:+.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c0_vs_c4_morans_i_cohens_dz
+    min_count: 1
+
+  - key: phase1_c0_vs_c4_lisa_penalty_cohens_dz
+    raw_value: 3.190726
+    format: "{:+.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_c0_vs_c4_lisa_penalty_cohens_dz
+    min_count: 1
+
+  # ── §3.10 RQ3 Spearman ρ within canonical C4 (full-composite) at b=500k ──
+  - key: phase1_rq3_spearman_c4_b500k_morans_i
+    raw_value: 0.176304
+    format: "{:+.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_rq3_spearman_c4_b500k_morans_i
+    min_count: 1
+
+  - key: phase1_rq3_spearman_c4_b500k_lisa_penalty
+    raw_value: 0.061714
+    format: "{:+.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_rq3_spearman_c4_b500k_lisa_penalty
+    min_count: 1
+
+  - key: phase1_rq3_spearman_c4_b500k_jains_index
+    raw_value: -0.544236
+    format: "{:+.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_rq3_spearman_c4_b500k_jains_index
+    min_count: 1
+
+  # ── §3.7(B) Coefficient of variation (rugged-landscape signature) ──
+  # Cited as "≈ 49%" in §3.7(B) supporting the rugged-landscape framing
+  # against overfitting. Computed as cv_std / cv_mean from best_params.json.
+  - key: phase0_sa_cv_coefficient_of_variation_pct
+    raw_value: 49
+    format: "{}\\%"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/optuna_20260509_134028/best_params.json
+    verifier: phase0_sa_cv_coefficient_of_variation_pct
+    min_count: 1
+
+  # ── §3.9 pairwise VDA A12 panel ──
+  # The §3.9 prose cites VDA ≥ 0.718 as the panel-min and 0.883 for the
+  # C0 vs C4 jains_index pair specifically. Both come from the chain-mean
+  # per-seed panel through analyze_phase1_conditions.py.
+
+  - key: phase1_vda_c0_vs_c3_jains_index
+    raw_value: 0.7178
+    format: "{:.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_vda_c0_vs_c3_jains_index
+    min_count: 1
+
+  - key: phase1_vda_c0_vs_c4_jains_index
+    raw_value: 0.8829
+    format: "{:.3f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: token
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_vda_c0_vs_c4_jains_index
+    min_count: 1
+
+  # ── §3.9 JFI parity Wilcoxon W (statistical-vs-operational nuance) ──
+  # Cited as W=0 (C4) and W=82.5 (C3) in the §3.9 statistical-vs-operational
+  # paragraph. Re-computed via scipy.stats.wilcoxon on the per-seed panel.
+
+  - key: phase1_jfi_parity_w_c3
+    raw_value: 82.5
+    format: "{}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: regex
+    pattern: "W = (?P<value>82\\.5)"
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_jfi_parity_w_c3
+    min_count: 1
+
+  - key: phase1_jfi_parity_w_c4
+    raw_value: 0.0
+    format: "{:.1f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: regex
+    pattern: "W = (?P<value>0\\.0)"
+    source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
+    verifier: phase1_jfi_parity_w_c4
+    min_count: 1
 
   # ── DELIBERATELY-BROKEN EXAMPLE (commented out) ──
   # Uncomment to see the failure message. Demonstrates: anchor resolves to 0

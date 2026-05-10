@@ -38,11 +38,11 @@ def meets_criteria(gap: float, jaines: float, morans: float, target: str = "good
     if target == "excellent":
         # Excellent: Jaine's Index must be excellent, Moran's I must be low
         # Balance gap is secondary - if Jaine's is perfect, accept even with higher gap
-        return jaines > 0.99 and abs(morans) < 0.05
+        return jaines > 0.99 and abs(morans) < 0.05  # noqa: canonical-transform (early-stop threshold; not the canonical hinge)
     else:  # "good"
         # Good: Jaine's Index must be good, Moran's I should be reasonable
         # Balance gap is secondary - accept if Jaine's is good
-        return jaines > 0.95 and abs(morans) < 0.1
+        return jaines > 0.95 and abs(morans) < 0.1  # noqa: canonical-transform (early-stop threshold; not the canonical hinge)
 
 
 def main():

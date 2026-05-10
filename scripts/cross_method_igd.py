@@ -20,6 +20,14 @@ from collections import defaultdict
 
 import numpy as np
 
+from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
+
+# Canonical 6-player layout has |G| = 31 by the §3.3 derivation. The reference
+# front, the projected scalar terminal states, and any post-hoc HV/IGD
+# computation MUST share the same n_spatial; otherwise the per-row hinge term
+# shifts and the comparison is bit-asymmetric.
+CANONICAL_N_SPATIAL = 31
+
 
 def igd_plus(front: np.ndarray, reference_front: np.ndarray) -> float:
     """
@@ -40,16 +48,17 @@ def igd_plus(front: np.ndarray, reference_front: np.ndarray) -> float:
     return total / len(reference_front)
 
 
-def load_pareto_archive(csv_path: Path) -> np.ndarray:
-    """Load archive into (N, 3) minimisation objectives: (1-JFI, |morans_i|, lisa_penalty)."""
+def load_pareto_archive(csv_path: Path, n_spatial: int = CANONICAL_N_SPATIAL) -> np.ndarray:
+    """Load archive into (N, 3) canonical Pareto-objective values via
+    `MultiObjectiveScore.archive_row_to_pareto_point` (the SINGLE-SOURCE
+    canonical transformation, returning
+    `(1 - jains_index, max(0, morans_i - E[I]), lisa_penalty)`).  # noqa: canonical-transform
+    """
     rows = []
     with open(csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
-            jfi = float(row["jains_index"])
-            mi = float(row["morans_i"])
-            lp = float(row["lisa_penalty"])
-            rows.append([1.0 - jfi, abs(mi), lp])
+            rows.append(MultiObjectiveScore.archive_row_to_pareto_point(row, n_spatial))
     return np.array(rows) if rows else np.empty((0, 3))
 
 
@@ -73,12 +82,16 @@ def build_ref_by_budget(archive_dir: Path) -> dict:
     return out
 
 
-def row_to_point(row: dict) -> np.ndarray:
-    """Map results.csv row to 3D minimisation objective vector."""
-    jfi = float(row["jains_index"])
-    mi = float(row["morans_i"])
-    lp = float(row["lisa_penalty"])
-    return np.array([1.0 - jfi, abs(mi), lp], dtype=np.float64)
+def row_to_point(row: dict, n_spatial: int = CANONICAL_N_SPATIAL) -> np.ndarray:
+    """Map results.csv row to 3D minimisation objective vector via the
+    SINGLE-SOURCE canonical transformation. Reference front and scalar
+    terminal states share this transformation by construction, so the
+    cross-method IGD comparison is bit-symmetric (every input row goes
+    through the same `archive_row_to_pareto_point` helper)."""
+    return np.asarray(
+        MultiObjectiveScore.archive_row_to_pareto_point(row, n_spatial),
+        dtype=np.float64,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -152,6 +165,33 @@ def main() -> int:
     if not archive_dir.exists():
         print(f"ERROR: archive dir not found: {archive_dir}", file=sys.stderr)
         return 1
+
+    # Provenance assertions on the producer of the archive + results.csv.
+    # Both must come from the same benchmark run; the run_dir form already
+    # guarantees that, but the --results-csv + --archive-dir form does not.
+    from ti4_analysis.utils.canonical_provenance import (
+        assert_canonical_formulation, assert_archive_transform_identity,
+    )
+    benchmark_run_dir = archive_dir.parent
+    cfg = assert_canonical_formulation(benchmark_run_dir)
+    assert_archive_transform_identity(CANONICAL_N_SPATIAL)
+    if results_csv.parent != benchmark_run_dir:
+        # Detect the --results-csv + --archive-dir cross-run mistake. The
+        # archive's canonical formulation and the results.csv's must come
+        # from the same run; otherwise the projected scalar terminal states
+        # are computed under one regime and the reference front under another.
+        results_run_dir = results_csv.parent
+        cfg_results = assert_canonical_formulation(results_run_dir)
+        if cfg["canonical_formulation"] != cfg_results["canonical_formulation"]:
+            print(
+                "FATAL: results.csv and pareto_archives/ come from runs with "
+                "different canonical_formulation blocks. Cross-method IGD requires "
+                "both inputs from the same run; refusing to proceed.",
+                file=sys.stderr,
+            )
+            return 1
+    print(f"Provenance OK: canonical_formulation v{cfg['canonical_formulation']['version']}, "
+          f"git_hash={cfg.get('git_hash', 'unknown')}")
 
     ref_by_budget = build_ref_by_budget(archive_dir)
     if not ref_by_budget:

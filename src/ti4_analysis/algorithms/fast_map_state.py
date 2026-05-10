@@ -328,6 +328,37 @@ class FastMapState:
             local_I = local_I * sqrt_k
         return float(local_I[local_I > 0].sum())
 
+    def lisa_penalty_swappable_thresholded(
+        self, tau: float = 0.05, use_local_variance: bool = True
+    ) -> float:
+        """
+        Variance-stabilized + threshold-floored LSAP over swappable variables.
+
+        Same domain (swappable systems, spatial_W_swappable) and same √k_i
+        stabilization as `lisa_penalty_swappable` (§3.4.3), with the additional
+        threshold floor τ from `lisa_penalty_thresholded`. The aggregation is
+        Σ max(0, I_i^corr − τ), where I_i^corr = √k_i · I_i.
+
+        This is the form required for a same-form Goodhart Test 3 comparison
+        against the canonical baseline `lisa_penalty_swappable(use_local_variance=True)`:
+        only the τ floor differs between baseline (τ=0) and thresholded (τ>0).
+        """
+        conn = self.topology.swappable_connected_s_pos
+        if len(conn) < 3:
+            return 0.0
+        z = np.asarray(self.system_value[conn], dtype=np.float64)
+        z_dev = z - z.mean()
+        n = len(z)
+        m2 = float(z_dev @ z_dev) / n
+        if m2 == 0.0:
+            return 0.0
+        Wz = self.topology.spatial_W_swappable @ z_dev
+        local_I = z_dev * np.asarray(Wz).ravel() / m2
+        if use_local_variance and hasattr(self.topology, 'degree_swappable') and len(self.topology.degree_swappable) == n:
+            sqrt_k = np.sqrt(np.asarray(self.topology.degree_swappable, dtype=np.float64))
+            local_I = local_I * sqrt_k
+        return float(np.maximum(0.0, local_I - tau).sum())
+
     def home_resources(self) -> np.ndarray:
         """Distance-weighted raw resource totals per home, shape (H,)."""
         if self._home_ri_dirty:

@@ -145,9 +145,9 @@ def _verify_convergence_jfi(raw_value: int | float) -> tuple[bool, str]:
 
 @verifier("distance_weight_tau_from_sensitivity_report")
 def _verify_distance_tau(raw_value: float) -> tuple[bool, str]:
-    """Mean Kendall's τ across distance-weight perturbations from the
-    legacy Phase 5 sensitivity report. Tolerance 1e-3 (the report rounds
-    to 3 decimal places)."""
+    """LEGACY Mean Kendall's τ across distance-weight perturbations from the
+    pre-canonical Phase 5 sensitivity report. Tolerance 1e-3 (the report rounds
+    to 3 decimal places). Retained as backstop for legacy-cite contexts."""
     path = ROOT / "output/saturation_20260314_205919/dist_sensitivity_20260316_100535/sensitivity_report.txt"
     if not path.exists():
         return False, f"Artifact missing: {path}"
@@ -158,6 +158,39 @@ def _verify_distance_tau(raw_value: float) -> tuple[bool, str]:
     actual = float(m.group(1))
     return (abs(actual - raw_value) <= 1e-3,
             f"sensitivity_report.txt mean τ = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("distance_weight_tau_canonical_from_csv")
+def _verify_distance_tau_canonical(raw_value: float) -> tuple[bool, str]:
+    """Canonical Mean Kendall's τ across distance-weight perturbations,
+    computed directly from sensitivity_results.csv. The canonical Phase 5 did
+    not write a sensitivity_report.txt, so we re-derive: for each pair of
+    weight configs, rank seeds by composite_score within each, compute
+    Kendall τ on the rankings; report mean τ across all C(N_configs, 2) pairs.
+    Tolerance 1e-3."""
+    path = ROOT / "output/paper1_canonical_20260509_134024/dist_sensitivity_20260509_204651/sensitivity_results.csv"
+    if not path.exists():
+        return False, f"Artifact missing: {path}"
+    import pandas as pd
+    import itertools
+    from scipy.stats import kendalltau as _kt
+    df = pd.read_csv(path)
+    configs = sorted(df["weight_config"].unique())
+    taus = []
+    for c1, c2 in itertools.combinations(configs, 2):
+        s1 = df[df["weight_config"] == c1].set_index("seed")["composite_score"]
+        s2 = df[df["weight_config"] == c2].set_index("seed")["composite_score"]
+        common = s1.index.intersection(s2.index)
+        if len(common) < 3:
+            continue
+        tau, _ = _kt(s1.loc[common], s2.loc[common])
+        taus.append(tau)
+    if not taus:
+        return False, f"No pairwise comparisons computable from {path}"
+    actual = sum(taus) / len(taus)
+    return (abs(actual - raw_value) <= 1e-3,
+            f"canonical sensitivity_results.csv mean τ across {len(taus)} pairwise = {actual:.6f}; "
+            f"manifest raw_value = {raw_value}")
 
 
 @verifier("goodhart_rho_alpha05_from_summary_json")
@@ -178,9 +211,8 @@ def _verify_goodhart_rho(raw_value: float) -> tuple[bool, str]:
 
 @verifier("goodhart_rho_fdr_from_diagnostic")
 def _verify_goodhart_rho_fdr(raw_value: float) -> tuple[bool, str]:
-    """Goodhart Spearman ρ under FDR-corrected target, from the per-map
-    diagnostic produced by scripts/lisa_proxy_per_map_diagnostic.py. Tolerance
-    1e-3 (manifest renders to 3 decimal places via {:+.3f})."""
+    """Goodhart Spearman ρ under FDR-corrected target, from the LEGACY per-map
+    diagnostic (n=120, 4 algorithms × 30 seeds). Tolerance 1e-3."""
     path = ROOT / "output/saturation_20260314_205919/lisa_validation_20260316_100413/lisa_proxy_per_map_diagnostic.json"
     if not path.exists():
         return False, f"Artifact missing: {path}"
@@ -190,14 +222,44 @@ def _verify_goodhart_rho_fdr(raw_value: float) -> tuple[bool, str]:
     except KeyError as e:
         return False, f"Path tests.per_map_rank_total_significant_fdr.spearman_rho missing from {path}: {e}"
     return (abs(actual - raw_value) <= 1e-3,
-            f"lisa_proxy_per_map_diagnostic.json FDR ρ = {actual}; manifest raw_value = {raw_value}")
+            f"legacy lisa_proxy_per_map_diagnostic.json FDR ρ = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("goodhart_rho_alpha05_canonical_from_summary_json")
+def _verify_goodhart_rho_alpha05_canonical(raw_value: float) -> tuple[bool, str]:
+    """Canonical Goodhart Spearman ρ vs α=0.05 cluster count, from canonical
+    Phase 4 (SA only, n=30 maps). Tolerance 1e-3."""
+    path = ROOT / "output/paper1_canonical_20260509_134024/lisa_validation_20260509_204628/proxy_validation_summary.json"
+    if not path.exists():
+        return False, f"Artifact missing: {path}"
+    data = json.loads(path.read_text())
+    actual = data.get("spearman_rho")
+    if actual is None:
+        return False, f"Key 'spearman_rho' missing from {path}"
+    return (abs(actual - raw_value) <= 1e-3,
+            f"canonical proxy_validation_summary.json spearman_rho = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("goodhart_rho_fdr_canonical_from_diagnostic")
+def _verify_goodhart_rho_fdr_canonical(raw_value: float) -> tuple[bool, str]:
+    """Canonical Goodhart Spearman ρ under FDR-corrected target, from canonical
+    Phase 4 per-map diagnostic (SA only, n=30). Tolerance 1e-3."""
+    path = ROOT / "output/paper1_canonical_20260509_134024/lisa_validation_20260509_204628/lisa_proxy_per_map_diagnostic.json"
+    if not path.exists():
+        return False, f"Artifact missing: {path}"
+    data = json.loads(path.read_text())
+    try:
+        actual = data["tests"]["per_map_rank_total_significant_fdr"]["spearman_rho"]
+    except KeyError as e:
+        return False, f"Path tests.per_map_rank_total_significant_fdr.spearman_rho missing from {path}: {e}"
+    return (abs(actual - raw_value) <= 1e-3,
+            f"canonical lisa_proxy_per_map_diagnostic.json FDR ρ = {actual}; manifest raw_value = {raw_value}")
 
 
 @verifier("lsap_threshold_tau_from_summary_json")
 def _verify_lsap_threshold_tau(raw_value: float) -> tuple[bool, str]:
-    """Threshold-sensitivity Kendall τ between baseline LSAP and the τ=0.05
-    thresholded variant. Source: scripts/lsap_threshold_sensitivity.py
-    summary JSON. Tolerance 1e-3."""
+    """Legacy threshold-sensitivity Kendall τ on the raw I_i form (60-seed × 4-algo
+    set). Source: scripts/lsap_threshold_sensitivity.py summary JSON. Tolerance 1e-3."""
     path = ROOT / "output/saturation_20260314_205919/lsap_threshold_20260316_194325/lsap_threshold_summary.json"
     if not path.exists():
         return False, f"Artifact missing: {path}"
@@ -207,6 +269,331 @@ def _verify_lsap_threshold_tau(raw_value: float) -> tuple[bool, str]:
         return False, f"Key 'kendalls_tau' missing from {path}"
     return (abs(actual - raw_value) <= 1e-3,
             f"lsap_threshold_summary.json kendalls_tau = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("lsap_threshold_tau_canonical_from_summary_json")
+def _verify_lsap_threshold_tau_canonical(raw_value: float) -> tuple[bool, str]:
+    """Canonical same-form threshold-sensitivity Kendall τ:
+    `lisa_penalty_swappable(use_local_variance=True)` baseline vs
+    `lisa_penalty_swappable_thresholded(τ=0.05, use_local_variance=True)`
+    thresholded comparator (50 SA seeds, budget 1000, --corrected-landscape).
+    Source: lsap_threshold_summary.json from the May 2026 canonical run.
+    Tolerance 1e-3."""
+    path = ROOT / "output/paper1_canonical_20260509_134024/lsap_threshold_20260509_231008/lsap_threshold_summary.json"
+    if not path.exists():
+        return False, f"Artifact missing: {path}"
+    data = json.loads(path.read_text())
+    actual = data.get("kendalls_tau")
+    if actual is None:
+        return False, f"Key 'kendalls_tau' missing from {path}"
+    return (abs(actual - raw_value) <= 1e-3,
+            f"canonical lsap_threshold_summary.json kendalls_tau = {actual}; manifest raw_value = {raw_value}")
+
+
+# ── Phase 0 canonical hyperparameter-tuning verifiers (May 9 2026) ──
+# Shared backend reads best_params.json once; the four wrapper verifiers
+# select the specific field. Tolerance 1e-5 (best_params.json values are
+# rounded to 6 decimal places; the manifest renders to 4 decimal places, so
+# the verifier compares raw artifact value to manifest raw_value at 1e-5).
+
+PHASE0_BEST_PARAMS = ROOT / "output/paper1_canonical_20260509_134024/optuna_20260509_134028/best_params.json"
+
+
+def _phase0_field(field: str, raw_value: float) -> tuple[bool, str]:
+    if not PHASE0_BEST_PARAMS.exists():
+        return False, f"Phase 0 artifact missing: {PHASE0_BEST_PARAMS} (canonical run not yet on disk)"
+    data = json.loads(PHASE0_BEST_PARAMS.read_text())
+    actual = data.get(field)
+    if actual is None:
+        return False, f"Key {field!r} missing from {PHASE0_BEST_PARAMS}"
+    return (abs(actual - raw_value) <= 1e-5,
+            f"best_params.json {field} = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase0_sa_cv_mean_from_best_params")
+def _verify_phase0_cv_mean(raw_value: float) -> tuple[bool, str]:
+    return _phase0_field("cv_mean", raw_value)
+
+
+@verifier("phase0_sa_cv_std_from_best_params")
+def _verify_phase0_cv_std(raw_value: float) -> tuple[bool, str]:
+    return _phase0_field("cv_std", raw_value)
+
+
+@verifier("phase0_sa_held_out_mean_from_best_params")
+def _verify_phase0_held_out_mean(raw_value: float) -> tuple[bool, str]:
+    return _phase0_field("held_out_mean", raw_value)
+
+
+@verifier("phase0_sa_held_out_std_from_best_params")
+def _verify_phase0_held_out_std(raw_value: float) -> tuple[bool, str]:
+    return _phase0_field("held_out_std", raw_value)
+
+
+@verifier("phase0_sa_cv_coefficient_of_variation_pct")
+def _verify_phase0_cv_cov_pct(raw_value: float) -> tuple[bool, str]:
+    """Coefficient of variation (cv_std / cv_mean) for Phase 0 SA tuning,
+    rounded to integer percent. Cited in §3.7(B) as ~49% characterizing
+    rugged-landscape variance. Tolerance 1pp."""
+    if not PHASE0_BEST_PARAMS.exists():
+        return False, f"Phase 0 artifact missing: {PHASE0_BEST_PARAMS}"
+    data = json.loads(PHASE0_BEST_PARAMS.read_text())
+    cv_mean = data.get("cv_mean")
+    cv_std = data.get("cv_std")
+    if cv_mean is None or cv_std is None or cv_mean == 0:
+        return False, f"cv_mean/cv_std missing or zero in {PHASE0_BEST_PARAMS}"
+    actual_pct = round(100.0 * cv_std / cv_mean)
+    return (abs(actual_pct - raw_value) <= 1.0,
+            f"CV(cv_std/cv_mean) = {actual_pct}%; manifest raw_value = {raw_value}%")
+
+
+# ── Phase 1 canonical results.csv verifiers (5-condition ablation, May 9 2026) ──
+# Shared backend reads results.csv once per call, filters to budget=500000,
+# and computes the median of the requested metric within the requested
+# condition. Tolerance 1e-3 (manuscript renders to 4 decimal places via
+# {:+.4f} or {:.4f}; the underlying CSV stores 4-decimal-rounded values
+# already, so the precision contract is "the median matches what's in the
+# CSV at the cited budget cell").
+
+PHASE1_RESULTS = ROOT / "output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv"
+
+
+def _phase1_condition_metric_median(condition: str, metric: str, raw_value: float,
+                                     budget: int = 500000) -> tuple[bool, str]:
+    """Chain-aggregated per-seed median: aggregate the 3 chains per (seed,
+    condition, budget) cell to one observation, then take median across 100
+    seeds. This matches what scripts/analyze_phase1_conditions.py reports
+    and what the §3.9 prose cites — pairwise Wilcoxon needs one observation
+    per seed, so chain aggregation is methodologically required."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    import pandas as pd
+    df = pd.read_csv(PHASE1_RESULTS)
+    sub = df[(df["condition"] == condition) & (df["budget"] == budget)]
+    if len(sub) == 0:
+        return False, f"No rows for condition={condition} metric={metric} budget={budget} in {PHASE1_RESULTS}"
+    # Chain aggregation: MEAN across chains, matching what
+    # analyze_phase1_conditions.py does at line 99 (groupby [...].mean()).
+    # Then take median across seeds (the descriptive median the analyzer reports).
+    per_seed = sub.groupby("seed")[metric].mean()
+    actual = float(per_seed.median())
+    return (abs(actual - raw_value) <= 1e-3,
+            f"results.csv ({condition}, {metric}, b={budget}) "
+            f"chain-mean / seed-median = {actual:.6f}; "
+            f"manifest raw_value = {raw_value:.6f} (n_seeds={len(per_seed)})")
+
+
+@verifier("phase1_morans_i_lt_neg1_count")
+def _v_phase1_boundary_count(raw_value: int) -> tuple[bool, str]:
+    """Count of canonical Phase 1 rows with morans_i < -1.0 (boundary
+    violations on row-standardized W; documented in limitations.md and
+    cited as a count in §3.3). Exact equality required."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    import pandas as pd
+    df = pd.read_csv(PHASE1_RESULTS)
+    actual = int((df["morans_i"] < -1.0).sum())
+    return (actual == int(raw_value),
+            f"results.csv #(morans_i < -1.0) = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_c0_morans_i_b500k")
+def _v_c0_morans(rv): return _phase1_condition_metric_median("jfi_only", "morans_i", rv)
+
+
+@verifier("phase1_c4_morans_i_b500k")
+def _v_c4_morans(rv): return _phase1_condition_metric_median("full_composite", "morans_i", rv)
+
+
+@verifier("phase1_c3_morans_i_b500k")
+def _v_c3_morans(rv): return _phase1_condition_metric_median("jfi_moran", "morans_i", rv)
+
+
+@verifier("phase1_c0_lisa_penalty_b500k")
+def _v_c0_lisa(rv): return _phase1_condition_metric_median("jfi_only", "lisa_penalty", rv)
+
+
+@verifier("phase1_c3_lisa_penalty_b500k")
+def _v_c3_lisa(rv): return _phase1_condition_metric_median("jfi_moran", "lisa_penalty", rv)
+
+
+@verifier("phase1_c4_lisa_penalty_b500k")
+def _v_c4_lisa(rv): return _phase1_condition_metric_median("full_composite", "lisa_penalty", rv)
+
+
+# ── Phase 1 ablation §3.9 stats panel: Friedman χ² + C0→C4 paired deltas ──
+# Re-computed from raw results.csv on each verify pass — same chain-mean /
+# seed-aggregation as analyze_phase1_conditions.py — so the manuscript values
+# are pinned to the artifact, not to the derived report.txt.
+
+CONDITION_ORDER = ["jfi_only", "moran_only", "lsap_only", "jfi_moran", "full_composite"]
+
+
+def _phase1_per_seed_panel(metric: str, budget: int = 500000):
+    """Build the (n_seeds × 5) per-seed × condition matrix used by Friedman /
+    Wilcoxon in analyze_phase1_conditions.py. Aggregates 3 chains per
+    (seed, condition, budget) cell to one observation via mean."""
+    import pandas as pd
+    df = pd.read_csv(PHASE1_RESULTS)
+    sub = df[df["budget"] == budget]
+    per_seed_cond = (
+        sub.groupby(["seed", "condition"])[metric].mean().unstack("condition")
+    )
+    per_seed_cond = per_seed_cond[CONDITION_ORDER].dropna()
+    return per_seed_cond
+
+
+def _phase1_friedman_chi2(metric: str, raw_value: float) -> tuple[bool, str]:
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    from scipy import stats
+    panel = _phase1_per_seed_panel(metric)
+    chi2, _ = stats.friedmanchisquare(*[panel[c].values for c in CONDITION_ORDER])
+    return (abs(chi2 - raw_value) <= 1e-2,
+            f"Friedman χ²({metric}, df=4) = {chi2:.4f}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_friedman_chi2_morans_i")
+def _v_phase1_friedman_morans(rv): return _phase1_friedman_chi2("morans_i", rv)
+
+
+@verifier("phase1_friedman_chi2_lisa_penalty")
+def _v_phase1_friedman_lisa(rv): return _phase1_friedman_chi2("lisa_penalty", rv)
+
+
+@verifier("phase1_friedman_chi2_jains_index")
+def _v_phase1_friedman_jfi(rv): return _phase1_friedman_chi2("jains_index", rv)
+
+
+def _phase1_c0_vs_c4_median_diff(metric: str, raw_value: float) -> tuple[bool, str]:
+    """C0→C4 difference of medians: median(C0) − median(C4) at b=500k. This is
+    the form analyze_phase1_conditions.py reports (and §3.9 cites); not the
+    median-of-paired-differences (which differs because median is not a
+    linear functional). Sign matches §3.9 (positive = C4 has lower
+    morans_i / lisa_penalty than C0)."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    import numpy as np
+    panel = _phase1_per_seed_panel(metric)
+    actual = float(np.median(panel["jfi_only"].values) - np.median(panel["full_composite"].values))
+    return (abs(actual - raw_value) <= 1e-3,
+            f"C0-C4 median difference ({metric}) = {actual:.6f}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_c0_vs_c4_morans_i_median_diff")
+def _v_c0c4_morans_diff(rv): return _phase1_c0_vs_c4_median_diff("morans_i", rv)
+
+
+@verifier("phase1_c0_vs_c4_lisa_penalty_median_diff")
+def _v_c0c4_lisa_diff(rv): return _phase1_c0_vs_c4_median_diff("lisa_penalty", rv)
+
+
+def _phase1_c0_vs_c4_cohens_dz(metric: str, raw_value: float) -> tuple[bool, str]:
+    """Cohen's d_z = mean(diff) / std(diff, ddof=1) on the per-seed paired
+    panel C0 (jfi_only) − C4 (full_composite). Same definition as
+    analyze_phase1_conditions.py::cohens_dz."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    import numpy as np
+    panel = _phase1_per_seed_panel(metric)
+    diffs = panel["jfi_only"].values - panel["full_composite"].values
+    sd = float(np.std(diffs, ddof=1))
+    if sd == 0:
+        return False, "std(diff) = 0; d_z undefined"
+    actual = float(np.mean(diffs) / sd)
+    return (abs(actual - raw_value) <= 1e-2,
+            f"Cohen's d_z (C0-C4, {metric}) = {actual:.4f}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_c0_vs_c4_morans_i_cohens_dz")
+def _v_c0c4_morans_dz(rv): return _phase1_c0_vs_c4_cohens_dz("morans_i", rv)
+
+
+@verifier("phase1_c0_vs_c4_lisa_penalty_cohens_dz")
+def _v_c0c4_lisa_dz(rv): return _phase1_c0_vs_c4_cohens_dz("lisa_penalty", rv)
+
+
+def _phase1_rq3_spearman_c4_b500k(metric: str, raw_value: float) -> tuple[bool, str]:
+    """RQ3: Spearman ρ between balance_gap and `metric` within canonical
+    full-composite C4 at b=500k, chain-mean per-seed (n=100). Tolerance 1e-3."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    import pandas as pd
+    from scipy import stats
+    df = pd.read_csv(PHASE1_RESULTS)
+    sub = df[(df["condition"] == "full_composite") & (df["budget"] == 500000)]
+    per_seed = sub.groupby("seed")[["balance_gap", metric]].mean()
+    rho, _ = stats.spearmanr(per_seed["balance_gap"], per_seed[metric])
+    return (abs(rho - raw_value) <= 1e-3,
+            f"RQ3 ρ(balance_gap, {metric}) = {rho:.4f}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_rq3_spearman_c4_b500k_morans_i")
+def _v_rq3_morans(rv): return _phase1_rq3_spearman_c4_b500k("morans_i", rv)
+
+
+@verifier("phase1_rq3_spearman_c4_b500k_lisa_penalty")
+def _v_rq3_lisa(rv): return _phase1_rq3_spearman_c4_b500k("lisa_penalty", rv)
+
+
+@verifier("phase1_rq3_spearman_c4_b500k_jains_index")
+def _v_rq3_jfi(rv): return _phase1_rq3_spearman_c4_b500k("jains_index", rv)
+
+
+def _phase1_c0_vs_cx_vda(metric: str, condition_x: str, raw_value: float) -> tuple[bool, str]:
+    """Vargha-Delaney A12 between C0 (jfi_only) and Cx for metric. Sign and
+    direction match analyze_phase1_conditions.py: A12 = P(C0 > Cx) + 0.5 *
+    P(C0 == Cx) on per-seed paired observations (chain-mean aggregated).
+    For metrics where C4 is expected lower than C0 (morans_i, lisa_penalty)
+    or higher (jains_index reversed sense), A12 captures the rank concordance."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    panel = _phase1_per_seed_panel(metric)
+    a = panel["jfi_only"].values
+    b = panel[condition_x].values
+    n = len(a)
+    # A12 = (#wins + 0.5 * #ties) / (n_a * n_b) over all paired comparisons
+    import numpy as np
+    A_grid = a[:, None] - b[None, :]
+    wins = float((A_grid > 0).sum())
+    ties = float((A_grid == 0).sum())
+    a12 = (wins + 0.5 * ties) / (n * n)
+    return (abs(a12 - raw_value) <= 1e-3,
+            f"VDA A12(C0 vs {condition_x}, {metric}) = {a12:.4f}; manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_vda_c0_vs_c3_jains_index")
+def _v_vda_c3_jfi(rv): return _phase1_c0_vs_cx_vda("jains_index", "jfi_moran", rv)
+
+
+@verifier("phase1_vda_c0_vs_c4_jains_index")
+def _v_vda_c4_jfi(rv): return _phase1_c0_vs_cx_vda("jains_index", "full_composite", rv)
+
+
+def _phase1_jfi_parity_wilcoxon(condition_x: str, raw_value: float) -> tuple[bool, str]:
+    """Wilcoxon signed-rank W statistic for one-sided JFI parity test:
+    H0: jains_index(Cx) >= jains_index(C0). The chain-mean per-seed panel
+    is the input; W is the smaller sum of signed ranks (scipy default)."""
+    if not PHASE1_RESULTS.exists():
+        return False, f"Phase 1 artifact missing: {PHASE1_RESULTS}"
+    from scipy import stats
+    panel = _phase1_per_seed_panel("jains_index")
+    diffs = panel["jfi_only"].values - panel[condition_x].values
+    nonzero = diffs[diffs != 0]
+    if len(nonzero) == 0:
+        return False, "All paired differences are zero"
+    res = stats.wilcoxon(nonzero, alternative="two-sided", zero_method="wilcox")
+    return (abs(float(res.statistic) - raw_value) <= 1e-1,
+            f"Wilcoxon W (C0 vs {condition_x}, jains_index) = {res.statistic}; "
+            f"manifest raw_value = {raw_value}")
+
+
+@verifier("phase1_jfi_parity_w_c3")
+def _v_jfi_w_c3(rv): return _phase1_jfi_parity_wilcoxon("jfi_moran", rv)
+
+
+@verifier("phase1_jfi_parity_w_c4")
+def _v_jfi_w_c4(rv): return _phase1_jfi_parity_wilcoxon("full_composite", rv)
 
 
 # ── Data structures ──────────────────────────────────────────────────────

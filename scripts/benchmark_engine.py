@@ -806,10 +806,33 @@ def main() -> int:
     )
     resolved = dict(_default_score.weights)
 
+    # Canonical formulation block (§3.4). Single-source for downstream
+    # provenance assertions: every consumer of the archives or results.csv
+    # produced by this run reads `canonical_formulation` from run_config.json
+    # and asserts it matches the formulation the consumer expects. Bumping
+    # `version` is the explicit signal that a future re-run is no longer
+    # commensurable with prior canonical artifacts. See
+    # `feedback_canonical_objective_single_source.md`.
+    canonical_formulation = {
+        "version": "v1.0-corrected-landscape-2026",
+        "corrected_landscape": bool(getattr(args, "corrected_landscape", False)),
+        "n_spatial": 31,  # 6-player canonical layout; topology-dependent
+        "smooth_p": 8.0,  # smooth-min Jain bottleneck (§3.4.1)
+        "smooth_k": 10.0,  # softplus hinge (§3.4.2)
+        "gen0_sigma_n_samples": 1000,  # static σ normalization (§3.4.4)
+        "gen0_sigma_seed_offset": 99999,
+        "use_local_variance_lisa": bool(getattr(args, "corrected_landscape", False)),
+        "smooth_min_form": "power_mean_M_neg_p",  # not log-sum-exp; §3.4.1 prose
+    }
+
     extra = {
         "run_name":   run_name,
         "nsga_evals": args.nsga_gen * args.nsga_pop,
+        # Legacy field retained for backward compatibility with consumers that
+        # already read it; canonical_formulation.use_local_variance_lisa is the
+        # authoritative source going forward.
         "use_local_variance_lisa": getattr(args, "corrected_landscape", False),
+        "canonical_formulation": canonical_formulation,
         "conditions": conditions_list,
         "condition_weights": {
             name: {"morans_i": w[0], "jains_index": w[1], "lisa_penalty": w[2]}
@@ -844,21 +867,24 @@ def main() -> int:
             writer.writeheader()
             csv_file.flush()
 
+            from ti4_analysis.algorithms.budget_factorization import nsga2_budget
+            # NSGA-II (gen, pop) is derived from the active budget via the
+            # SAME helper the tuner uses. CLI flags `--nsga-pop` / `--nsga-gen`
+            # are honored only when neither `--budgets` is set nor the budget
+            # comes from `--hc-iter`/`--sa-iter`; in normal operation the
+            # helper governs both phases so the drift is structurally
+            # impossible. See `feedback_canonical_objective_single_source.md`.
             for budget in budget_levels:
-                if args.budgets:
-                    hc_iter  = budget
-                    sa_iter  = budget
-                    nsga_gen = max(1, budget // args.nsga_pop)
-                else:
-                    hc_iter  = args.hc_iter
-                    sa_iter  = args.sa_iter
-                    nsga_gen = args.nsga_gen
+                hc_iter  = budget if args.budgets else args.hc_iter
+                sa_iter  = budget if args.budgets else args.sa_iter
+                nsga_gen, nsga_pop_b = nsga2_budget(budget)
 
-                actual_nsga_evals = nsga_gen * args.nsga_pop
+                actual_nsga_evals = nsga_gen * nsga_pop_b
 
                 print(f"── Budget {budget:,} ─────────────────────────────────────")
                 print(f"   HC={hc_iter}, SA={sa_iter}, "
-                      f"NSGA-II={nsga_gen}gen × {args.nsga_pop}pop = {actual_nsga_evals}")
+                      f"NSGA-II={nsga_gen}gen × {nsga_pop_b}pop = {actual_nsga_evals} "
+                      f"(via nsga2_budget helper; --nsga-pop/--nsga-gen ignored)")
 
                 accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
@@ -873,7 +899,7 @@ def main() -> int:
 
                 jobs = [
                     (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
-                     args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
+                     args.players, args.sa_rate, args.sa_min_temp, nsga_pop_b,
                      args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure, args.ts_k,
                      args.sga_blob, args.sga_mut, args.sga_warm, n_chains,
                      getattr(args, "corrected_landscape", False),

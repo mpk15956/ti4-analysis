@@ -202,6 +202,39 @@ class MultiObjectiveScore:
         f3 = self.lisa_penalty
         return (f1, f2, f3)
 
+    @classmethod
+    def from_archive_row(cls, row, n_spatial: int) -> "MultiObjectiveScore":
+        """
+        Construct from a pareto_archives/unified_archives row. The archive
+        schema is `{jains_index, morans_i, lisa_penalty, [composite_score]}`;
+        per-dimension `jfi_resources/jfi_influence` are NOT recorded, so
+        post-hoc Pareto analysis runs with `use_smooth_objectives=False` (the
+        smooth f1 requires both per-dimension JFI values, which are unavailable
+        from the archive). Callers must supply `n_spatial` for the topology
+        the run was executed on (canonical 6-player layout: n_spatial=31).
+        """
+        return cls(
+            balance_gap=0.0,
+            morans_i=float(row["morans_i"]),
+            jains_index=float(row["jains_index"]),
+            lisa_penalty=float(row["lisa_penalty"]),
+            n_spatial=n_spatial,
+            use_smooth_objectives=False,
+        )
+
+    @staticmethod
+    def archive_row_to_pareto_point(row, n_spatial: int) -> Tuple[float, float, float]:
+        """
+        SINGLE-SOURCE canonical objective transformation for archive consumers.
+        Returns (1 - jains_index, max(0, morans_i - E[I]), lisa_penalty) — the
+        same tuple that NSGA-II uses for Pareto dominance during the run. Every
+        post-hoc consumer (quality_indicators.py, cross_method_igd.py,
+        unified_hv_analysis.py) MUST call this helper rather than
+        re-implementing the transformation inline. See methodology §3.1 / §3.4
+        and `feedback_canonical_objective_single_source.md`.
+        """
+        return MultiObjectiveScore.from_archive_row(row, n_spatial).objective_values_for_pareto()
+
     def lex_key(self) -> tuple:
         """
         Lexicographic fitness key for HC, TS, and SGA. Lower is better.

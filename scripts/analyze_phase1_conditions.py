@@ -182,9 +182,34 @@ def run_friedman(df: pd.DataFrame, metric: str) -> dict:
     return {"chi2": float(stat), "p": float(p), "df": len(groups) - 1}
 
 
+def cohens_dz(xa: np.ndarray, xb: np.ndarray) -> float:
+    """Cohen's d_z effect size for paired samples (Lakens, 2013):
+    d_z = mean(x_a - x_b) / std(x_a - x_b, ddof=1).
+    Returns nan if std(diff) = 0 (perfectly identical paired samples)."""
+    diff = np.asarray(xa) - np.asarray(xb)
+    sd = float(np.std(diff, ddof=1))
+    if sd == 0.0:
+        return float("nan")
+    return float(np.mean(diff) / sd)
+
+
+def cohens_dz_magnitude(d: float) -> str:
+    """Lakens 2013 magnitude bands for |d_z|."""
+    if not np.isfinite(d):
+        return "undefined"
+    a = abs(d)
+    if a < 0.2:
+        return "negligible"
+    if a < 0.5:
+        return "small"
+    if a < 0.8:
+        return "medium"
+    return "large"
+
+
 def run_pairwise(df: pd.DataFrame, pairs: list, metrics: list,
                  alpha: float = 0.05) -> pd.DataFrame:
-    """Wilcoxon signed-rank + Holm-Bonferroni + VDA for all pairs × metrics."""
+    """Wilcoxon signed-rank + Holm-Bonferroni + VDA + Cohen's d_z for all pairs × metrics."""
     rows = []
     # Collect raw p-values across ALL tests for Holm-Bonferroni
     all_tests = []
@@ -199,6 +224,7 @@ def run_pairwise(df: pd.DataFrame, pairs: list, metrics: list,
                 stat, p_raw = None, 1.0
             a_val = vda(xa, xb)
             med_diff, ci_lo, ci_hi = bootstrap_median_diff(xa, xb)
+            dz = cohens_dz(xa, xb)
             all_tests.append({
                 "metric": metric,
                 "cond_a": cond_a,
@@ -207,6 +233,8 @@ def run_pairwise(df: pd.DataFrame, pairs: list, metrics: list,
                 "p_raw": p_raw,
                 "vda_A": round(a_val, 4),
                 "vda_mag": vda_magnitude(a_val),
+                "cohens_dz": round(dz, 4) if np.isfinite(dz) else float("nan"),
+                "cohens_dz_mag": cohens_dz_magnitude(dz),
                 "median_a": float(np.median(xa)),
                 "median_b": float(np.median(xb)),
                 "median_diff": round(med_diff, 6),
@@ -324,7 +352,8 @@ def write_report(df_raw: pd.DataFrame, pairs_df: pd.DataFrame,
             lines.append(
                 f"      W={row['W']:.1f}  p_raw={row['p_raw']:.4f}  "
                 f"p_corr={row['p_corrected']:.4f} {sig}  "
-                f"VDA={row['vda_A']:.3f} ({row['vda_mag']})"
+                f"VDA={row['vda_A']:.3f} ({row['vda_mag']})  "
+                f"d_z={row['cohens_dz']:+.3f} ({row['cohens_dz_mag']})"
             )
             lines.append(
                 f"      median_diff={row['median_diff']:+.4f}  "
