@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=72:00:00
+#SBATCH --time=120:00:00
 #SBATCH --output=slurm-%j.out
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=mpk15956@uga.edu
