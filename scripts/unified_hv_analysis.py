@@ -228,12 +228,23 @@ def load_unified_archive(csv_path: Path, n_spatial: int = CANONICAL_N_SPATIAL) -
 def parse_meta_from_stem(stem: str) -> Tuple[str, int, int]:
     """
     Parse algorithm, seed, budget from unified archive filename stem:
-        unified_archive_algo{algo}_seed{seed}_b{budget}
+        unified_archive_algo{algo}_seed{seed}_b{budget}[_chain{id}]
+
+    benchmark_engine.py appends `_chain{id}` when chains>1 (one empirical front
+    per chain). The unified-HV unit is (algorithm, seed, budget) per README/
+    Methodology 3.8/3.9, so the chain id is parsed but NOT returned: callers
+    group by (algo, seed, budget) and aggregate a tuple's per-chain HVs by mean
+    (§3.9). Failing to do so makes run_stats' `data[algo][seed]` overwrite
+    chains silently, keeping only the last one.
     """
     if not stem.startswith("unified_archive_algo"):
         raise ValueError(f"Unexpected archive stem: {stem}")
-    rest = stem[len("unified_archive_algo"):]  # e.g. "sa_seed0_b1000"
+    rest = stem[len("unified_archive_algo"):]  # e.g. "sa_seed0_b1000" or "..._chain0"
     parts = rest.split("_")
+    if len(parts) == 4:
+        if not parts[3].startswith("chain"):
+            raise ValueError(f"Unexpected archive stem format: {stem}")
+        parts = parts[:3]  # drop the chain segment; chains are combined upstream
     if len(parts) != 3:
         raise ValueError(f"Unexpected archive stem format: {stem}")
     algo = parts[0]
@@ -366,22 +377,24 @@ def main() -> int:
 
     print(f"Loading {len(hv_files)} unified archives from {archive_dir}")
 
-    all_points = []
-    fronts: List[Tuple[str, int, int, np.ndarray]] = []
-
+    # Group files by the documented unit (algo, seed, budget); when chains>1
+    # there are multiple files per tuple (one empirical front per chain).
+    grouped: Dict[Tuple[str, int, int], List[np.ndarray]] = defaultdict(list)
     for f in hv_files:
         algo, seed, budget = parse_meta_from_stem(f.stem)
         front = load_unified_archive(f)
         if front.size == 0:
             continue
-        fronts.append((algo, seed, budget, front))
-        all_points.append(front)
+        grouped[(algo, seed, budget)].append(front)
 
-    if not all_points:
+    if not grouped:
         print("No valid unified fronts found", file=sys.stderr)
         return 1
 
-    combined = np.vstack(all_points)
+    # Reference (nadir) point spans ALL chains' points so HV is comparable
+    # across algorithms/seeds/chains.
+    combined = np.vstack([cf for chain_fronts in grouped.values()
+                          for cf in chain_fronts])
 
     if args.reference == "auto":
         worst = combined.max(axis=0)
@@ -396,14 +409,20 @@ def main() -> int:
         print("WARNING: --mc-samples is deprecated and has no effect. "
               "Exact 3D sweep-line HV is used.", file=sys.stderr)
 
+    # §3.9 chain aggregation: each (algo, seed, budget) is ONE observation =
+    # the MEAN of its per-chain HVs (Methodology 3.9 — "3 chains aggregated to
+    # one observation per seed via mean"; analyze_rq2/analyze_benchmark/
+    # analyze_rq3 all mean across chains). Compute HV per chain then average —
+    # NOT HV of the unioned points — to stay consistent with that convention.
     hv_table: List[Dict] = []
-    for algo, seed, budget, front in fronts:
-        hv = hypervolume(front, ref)
+    for (algo, seed, budget), chain_fronts in sorted(grouped.items()):
+        chain_hvs = [hypervolume(cf, ref) for cf in chain_fronts]
+        hv = float(np.mean(chain_hvs))
         hv_table.append({
             "algorithm": algo,
             "seed": seed,
             "budget": budget,
-            "hv": float(hv),
+            "hv": hv,
         })
 
     # Write CSV
@@ -415,10 +434,14 @@ def main() -> int:
             writer.writerow(row)
     print(f"Unified HV CSV written to {csv_path}")
 
-    # Optional stats at a chosen budget
-    if args.budget is not None:
-        report_path = output_dir / f"unified_hv_stats_budget{args.budget}.txt"
-        run_stats(hv_table, args.budget, report_path)
+    # Descriptive stats per budget. The (expensive) load + HV pass above already
+    # covers every budget, so write a stats file for each budget present in ONE
+    # invocation rather than reloading all archives once per budget. (--budget is
+    # honored for back-compat but no longer needs a separate call per budget.)
+    budgets_present = sorted({r["budget"] for r in hv_table})
+    targets = [args.budget] if args.budget is not None else budgets_present
+    for b in targets:
+        run_stats(hv_table, b, output_dir / f"unified_hv_stats_budget{b}.txt")
 
     return 0
 
