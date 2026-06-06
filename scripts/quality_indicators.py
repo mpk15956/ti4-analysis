@@ -25,6 +25,7 @@ from typing import List, Tuple
 import numpy as np
 
 from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
+from ti4_analysis.algorithms.moo_indicators import igd_plus, nondominated_filter
 
 # Canonical 6-player layout has |G| = 31 by the §3.3 derivation. This must
 # match the n_spatial the benchmark engine used to produce the archive; if
@@ -94,28 +95,9 @@ def hypervolume(points: np.ndarray, ref: np.ndarray,
 
 # ── IGD+ (Inverted Generational Distance Plus) ──────────────────────────────
 
-def igd_plus(front: np.ndarray, reference_front: np.ndarray) -> float:
-    """
-    IGD+ (Ishibuchi et al. 2015): modified IGD that is Pareto-compliant.
-
-    For each reference point, find the minimum modified distance to any
-    point in the front, where the modified distance only penalises dimensions
-    where the front point is worse.
-    """
-    if len(front) == 0 or len(reference_front) == 0:
-        return float('inf')
-
-    total = 0.0
-    for r in reference_front:
-        min_dist = float('inf')
-        for p in front:
-            diff = np.maximum(p - r, 0.0)
-            d = float(np.sqrt(np.sum(diff ** 2)))
-            if d < min_dist:
-                min_dist = d
-        total += min_dist
-
-    return total / len(reference_front)
+# igd_plus now lives in ti4_analysis.algorithms.moo_indicators (vectorized,
+# equivalence-tested against the original loop) — single source shared with
+# cross_method_igd.py. Imported at module top.
 
 
 # ── Spacing ───────────────────────────────────────────────────────────────────
@@ -209,37 +191,61 @@ def main() -> int:
 
     print(f"Loading {len(archive_files)} Pareto archives from {archive_dir}")
 
+    import re
+
     all_fronts = {}
+    front_budget = {}
+    points_by_budget = {}
     all_points = []
     for f in archive_files:
-        seed = f.stem.replace("pareto_archive_seed", "")
+        key = f.stem.replace("pareto_archive_seed", "")  # "{seed}_b{budget}"
+        m = re.search(r"_b(\d+)$", key)
+        if not m:
+            print(f"WARNING: cannot parse budget from {f.name}; skipping",
+                  file=sys.stderr)
+            continue
+        budget = int(m.group(1))
         front = load_pareto_archive(f)
         if len(front) > 0:
-            all_fronts[seed] = front
+            all_fronts[key] = front
+            front_budget[key] = budget
+            points_by_budget.setdefault(budget, []).append(front)
             all_points.append(front)
 
     if not all_points:
         print("No valid Pareto archives found", file=sys.stderr)
         return 1
 
+    # HV reference POINT: global nadir (worst observed x 1.1) for cross-row
+    # comparability. HV is computed per-front against this point — unchanged.
     combined = np.vstack(all_points)
-
     if args.reference == "auto":
         worst = combined.max(axis=0)
         ref = worst * 1.1
     else:
         ref = np.array([float(x) for x in args.reference.split(",")])
+    print(f"Reference point (HV nadir): {ref}")
 
-    print(f"Reference point: {ref}")
-    print(f"Combined reference front: {len(combined)} points")
+    # IGD+ reference SET: per-budget non-dominated front. Ishibuchi et al. (2015)
+    # require the reference to approximate the true Pareto front; Methodology
+    # 3.8 specifies "merging all observed Pareto points across seeds" (i.e. per
+    # budget, non-dominated). The non-dominated filter also collapses the raw
+    # per-budget union to its frontier, which is what makes IGD+ tractable.
+    ref_by_budget = {}
+    for budget, fronts in sorted(points_by_budget.items()):
+        raw = np.vstack(fronts)
+        nd = nondominated_filter(raw)
+        ref_by_budget[budget] = nd
+        print(f"  budget {budget:>7}: IGD+ reference {len(raw)} -> {len(nd)} non-dominated")
 
     results = []
-    for seed, front in sorted(all_fronts.items()):
+    for key, front in sorted(all_fronts.items()):
+        budget = front_budget[key]
         hv = hypervolume(front, ref, args.mc_samples)
-        igdp = igd_plus(front, combined)
+        igdp = igd_plus(front, ref_by_budget[budget])
         sp = spacing(front)
         results.append({
-            "seed": seed,
+            "seed": key,
             "front_size": len(front),
             "hypervolume": round(hv, 6),
             "igd_plus": round(igdp, 6),

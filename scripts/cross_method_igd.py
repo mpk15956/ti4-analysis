@@ -21,6 +21,7 @@ from collections import defaultdict
 import numpy as np
 
 from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
+from ti4_analysis.algorithms.moo_indicators import igd_plus, nondominated_filter
 
 # Canonical 6-player layout has |G| = 31 by the §3.3 derivation. The reference
 # front, the projected scalar terminal states, and any post-hoc HV/IGD
@@ -29,23 +30,8 @@ from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
 CANONICAL_N_SPATIAL = 31
 
 
-def igd_plus(front: np.ndarray, reference_front: np.ndarray) -> float:
-    """
-    IGD+ (Ishibuchi et al. 2015): Pareto-compliant.
-    For each reference point, minimum modified distance to any point in the front.
-    """
-    if len(front) == 0 or len(reference_front) == 0:
-        return float("inf")
-    total = 0.0
-    for r in reference_front:
-        min_dist = float("inf")
-        for p in front:
-            diff = np.maximum(p - r, 0.0)
-            d = float(np.sqrt(np.sum(diff**2)))
-            if d < min_dist:
-                min_dist = d
-        total += min_dist
-    return total / len(reference_front)
+# igd_plus now lives in ti4_analysis.algorithms.moo_indicators (vectorized,
+# equivalence-tested) — single source shared with quality_indicators.py.
 
 
 def load_pareto_archive(csv_path: Path, n_spatial: int = CANONICAL_N_SPATIAL) -> np.ndarray:
@@ -78,7 +64,10 @@ def build_ref_by_budget(archive_dir: Path) -> dict:
                 ref_by_budget[budget].append(pts)
     out = {}
     for budget, lists in ref_by_budget.items():
-        out[budget] = np.vstack(lists)
+        # Non-dominated filter: the IGD+ reference must approximate the true
+        # Pareto front (Ishibuchi et al. 2015), not the raw union of all seeds'
+        # archives. Also collapses the per-budget cloud to its frontier.
+        out[budget] = nondominated_filter(np.vstack(lists))
     return out
 
 
