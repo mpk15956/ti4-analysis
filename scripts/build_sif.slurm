@@ -79,7 +79,13 @@ df -h "$SCRATCH"
 echo ""
 echo "--- Stage 1: podman build (OCI image) ---"
 $PODMAN info --format '{{.Host.OS}} {{.Host.Arch}} runtime={{.Host.OCIRuntime.Name}} graphDriver={{.Store.GraphDriverName}}' || true
-$PODMAN build -t ti4-analysis:latest -f Containerfile .
+# --network=host is REQUIRED here: rootless podman in a batch job (no systemd
+# user session / logind) has no working default RUN-step network on this cluster,
+# so the `pixi install` layer cannot reach conda/pypi and the build dies silently
+# (~16 s, no error flushed). Host networking lets the RUN step download packages.
+# Verified June 2026: plain `podman build` fails at STEP 5, `--network=host` builds
+# clean. (The "systemd sandbox cgroup" warning that remains is benign.)
+$PODMAN build --network=host -t ti4-analysis:latest -f Containerfile .
 
 echo ""
 echo "--- Stage 2: podman save (OCI archive) ---"
