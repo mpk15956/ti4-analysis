@@ -5,8 +5,6 @@ type: audit
 tags: [audit, track-b, igd-plus, hypervolume, chains, methodology]
 ---
 
-# Phase 6/7 latent defects surfaced at full scale
-
 ## How they were found
 
 Job 28399 (the Paper-1 multi-algorithm canonical run, Stage 2) was killed by the
@@ -79,9 +77,17 @@ Track B (HV/IGD+/Spacing) and RQ2 (NSGA-II HV vs scalars) had not been exercised
 under the canonical run before (see `claim_evidence_audit.md`: "Track B not
 currently exercised under canonical"). These are therefore the **first**
 canonical Track B / RQ2 numbers, not a correction to published ones. Headline
-RQ2: NSGA-II's HV significantly exceeds RS/HC/SGA/TS at nearly all budgets
-(VDA 0.7–0.98, Holm p ≪ 0.05) and is statistically tied with SA (VDA ≈ 0.44–0.55)
-— the substantive Track-B finding. Final outputs:
+RQ2 is a **budget-dependent crossover**, not a flat tie: NSGA-II's HV
+significantly exceeds RS/HC/SGA/TS at all budgets with large effect (VDA
+0.86–0.99 at 500k, Holm p ≪ 0.05). Against the strongest scalar baseline, SA, it
+is genuinely indistinguishable at low budgets (b1000: VDA 0.44, n.s.) and opens
+a *statistically significant but operationally negligible* lead by 500k
+(VDA 0.536, Holm p = 8.4e-4; median HV 0.83970 vs 0.83967). The load-bearing
+claim is operational: a scalar Markov chain stays within a negligible effect
+size of a dedicated MOEA on a weight-independent metric — SA is in NSGA-II's
+class, unlike RS/HC/SGA/TS. (An earlier draft of this file called SA a flat
+"statistical tie"; that conflated the low-budget regime with 500k and is
+corrected here.) Final outputs:
 `output/paper1_500k_finalize_phase67_20260606_101032/`.
 
 ## Lesson
