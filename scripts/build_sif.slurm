@@ -12,12 +12,15 @@
 # Submit with: sbatch scripts/build_sif.slurm
 #
 #SBATCH --job-name=ti4_sif_build
+#SBATCH --account=geog4592
 #SBATCH --partition=batch
 #SBATCH --time=04:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --output=slurm-%j.out
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=mpk15956@uga.edu
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
@@ -84,16 +87,18 @@ $PODMAN save --format oci-archive -o "$SCRATCH/ti4-analysis.oci.tar" ti4-analysi
 ls -lh "$SCRATCH/ti4-analysis.oci.tar"
 
 echo ""
-echo "--- Stage 3: apptainer build (.sif) ---"
-# Build the .sif on scratch, then move (atomic rename within fs) into project dir.
+echo "--- Stage 3: apptainer build (.sif on scratch) ---"
 apptainer build --force "$SCRATCH/ti4-analysis.sif" "oci-archive:$SCRATCH/ti4-analysis.oci.tar"
-mv -f "$SCRATCH/ti4-analysis.sif" ./ti4-analysis.sif
-ls -lh ti4-analysis.sif
+ls -lh "$SCRATCH/ti4-analysis.sif"
 
+# ── Verify BEFORE publishing ────────────────────────────────────────────────
+# Smoke test + canary run against the scratch .sif; only a verified image is
+# moved into the project dir. With set -e, any failure aborts here and the
+# trap reaps scratch, so a bad rebuild can never clobber the working .sif.
 echo ""
-echo "--- Smoke test ---"
-apptainer exec ti4-analysis.sif python --version
-apptainer exec ti4-analysis.sif python -c "
+echo "--- Smoke test (scratch .sif, before publish) ---"
+apptainer exec "$SCRATCH/ti4-analysis.sif" python --version
+apptainer exec "$SCRATCH/ti4-analysis.sif" python -c "
 import sys, numpy, scipy, pandas, esda, libpysal, matplotlib, networkx
 print(f'  python     {sys.version.split()[0]}')
 print(f'  numpy      {numpy.__version__}')
@@ -107,7 +112,64 @@ print('imports OK')
 "
 
 echo ""
+echo "--- Canonical-objective canary (baked code, before publish) ---"
+# Exercise the FRESHLY BAKED /app/src (no host bind) so a dependency-version
+# skew that silently moves a numeric result is caught at build time (~second 60)
+# rather than at hour 30 of the re-run. Same invariants as the multi-algo
+# pre-flight: |G|=31, E[I]=-1/30, and the canonical objective tuple bit-correct.
+apptainer exec "$SCRATCH/ti4-analysis.sif" python -c "
+from ti4_analysis.algorithms.spatial_optimizer import MultiObjectiveScore
+from ti4_analysis.algorithms.map_topology import MapTopology, morans_i_null
+from ti4_analysis.algorithms.map_generator import generate_random_map
+from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
+ev = create_joebrew_evaluator()
+m = generate_random_map(player_count=6, random_seed=0)
+topo = MapTopology.from_ti4_map(m, ev)
+assert topo.n_spatial == 31, f'n_spatial drift: {topo.n_spatial}'
+assert abs(morans_i_null(31) - (-1.0/30)) <= 1e-12, 'E[I] drift'
+f1, f2, f3 = MultiObjectiveScore.archive_row_to_pareto_point(
+    {'jains_index': 0.95, 'morans_i': -0.6, 'lisa_penalty': 4.5}, 31)
+assert abs(f1-0.05) <= 1e-12 and f2 == 0.0 and abs(f3-4.5) <= 1e-12, \
+    f'canonical tuple drift: ({f1},{f2},{f3})'
+print('  PASS: baked image -> |G|=31, E[I]=-1/30, canonical tuple bit-correct')
+"
+echo "  Canary OK."
+
+echo ""
+echo "--- Publish: move verified .sif into project dir ---"
+mv -f "$SCRATCH/ti4-analysis.sif" ./ti4-analysis.sif
+ls -lh ti4-analysis.sif
+
+echo ""
+echo "--- Provenance record ---"
+# Content-address the published .sif to the exact committed tree it was built
+# from (FAIR provenance, Wilkinson et al. 2016). Git metadata is taken from the
+# submit-time env export when present (the login node always has git), else from
+# compute-node git, else 'unknown'. Sidecar lands next to the .sif.
+PROV="ti4-analysis.sif.provenance.json"
+GIT_HASH="${TI4_GIT_HASH:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+GIT_DIRTY="${TI4_GIT_DIRTY:-$([ -n "$(git status --porcelain 2>/dev/null)" ] && echo true || echo false)}"
+SIF_SHA="$(sha256sum ti4-analysis.sif | awk '{print $1}')"
+CF_SHA="$(sha256sum Containerfile | awk '{print $1}')"
+LOCK_SHA="$(sha256sum pixi.lock | awk '{print $1}')"
+cat > "$PROV" <<JSON
+{
+  "sif": "ti4-analysis.sif",
+  "sif_sha256": "$SIF_SHA",
+  "git_hash": "$GIT_HASH",
+  "git_dirty": $GIT_DIRTY,
+  "containerfile_sha256": "$CF_SHA",
+  "pixi_lock_sha256": "$LOCK_SHA",
+  "slurm_job_id": "${SLURM_JOB_ID:-local}",
+  "host": "$(hostname)",
+  "built_at": "$(date -Iseconds)"
+}
+JSON
+cat "$PROV"
+
+echo ""
 echo "============================================================"
-echo "Built ti4-analysis.sif at: $PWD/ti4-analysis.sif"
+echo "Built + verified ti4-analysis.sif at: $PWD/ti4-analysis.sif"
+echo "Provenance: $PWD/$PROV (git_hash=$GIT_HASH dirty=$GIT_DIRTY)"
 echo "Finished at: $(date -Iseconds)"
 echo "============================================================"
