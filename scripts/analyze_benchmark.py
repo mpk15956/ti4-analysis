@@ -238,7 +238,32 @@ def friedman_test(df: pd.DataFrame, metric: str = "composite_score") -> Dict:
     if metric not in df.columns:
         return {"metric": metric, "chi2": np.nan, "p_friedman": np.nan, "df": 0, "n": 0,
                 "significant": False, "note": f"metric {metric!r} not in df"}
-    wide = df.pivot(index="seed", columns="algorithm", values=metric).dropna()
+
+    work = df
+    if metric == "evals_to_best":
+        # -1 is the "not recorded" sentinel (make_row default / error rows). A
+        # constant sentinel column silently corrupts the rank-ANOVA across ALL
+        # algorithms, not just the offending one (the NSGA-II evals_to_best bug;
+        # docs/audit/phase6_scale_defects_2026-06.md). So:
+        #   (a) refuse loudly if any present algorithm is entirely sentinel —
+        #       that means it was never instrumented, the exact RQ4 defect; and
+        #   (b) treat any remaining -1 as missing so the pivot does complete-case
+        #       pairing instead of ranking against a sentinel.
+        present = [a for a in ALGO_ORDER if a in df["algorithm"].unique()]
+        fully_sentinel = [
+            a for a in present
+            if not (df.loc[df["algorithm"] == a, metric] >= 0).any()
+        ]
+        if fully_sentinel:
+            return {"metric": metric, "chi2": np.nan, "p_friedman": np.nan,
+                    "df": 0, "n": 0, "significant": False,
+                    "note": (f"REFUSED: evals_to_best is the -1 sentinel for "
+                             f"{fully_sentinel} (never instrumented) — a constant "
+                             f"column would corrupt the omnibus across all algorithms")}
+        work = df.copy()
+        work.loc[work[metric] < 0, metric] = np.nan
+
+    wide = work.pivot(index="seed", columns="algorithm", values=metric).dropna()
     algos = [a for a in ALGO_ORDER if a in wide.columns]
     if len(algos) < 3:
         return {"metric": metric, "chi2": np.nan, "p_friedman": np.nan, "df": 0, "n": 0,
@@ -253,6 +278,9 @@ def friedman_test(df: pd.DataFrame, metric: str = "composite_score") -> Dict:
         "df": len(algos) - 1,
         "n": len(wide),
         "significant": p < 0.05,
+        # Record which algorithms actually entered the omnibus so a downstream
+        # pin can assert all six were present (no silent subset).
+        "algorithms": ",".join(algos),
     }
 
 
@@ -874,6 +902,14 @@ def main() -> int:
 
     wilcoxon_df.to_csv(out_dir / "pairwise_tests.csv", index=False)
     boot_df.to_csv(out_dir / "bootstrap_cis.csv", index=False)
+
+    # RQ4 single-source: persist the evals_to_best Friedman as a structured CSV
+    # so the manuscript-value generator reads it directly rather than parsing
+    # full_report.txt free text (logging-is-a-contract). One row; carries the
+    # `algorithms` provenance field and any REFUSED note.
+    pd.DataFrame([friedman_etb]).to_csv(
+        out_dir / "rq4_friedman_evals_to_best.csv", index=False)
+    print(f"RQ4 Friedman : {out_dir / 'rq4_friedman_evals_to_best.csv'}")
 
     # Print the report to stdout as well
     print("\n")

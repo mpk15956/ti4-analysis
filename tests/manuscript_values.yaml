@@ -1,4 +1,5 @@
-# Manuscript values manifest. STUB AGAINST LEGACY ARTIFACTS — May 2026.
+# Manuscript values manifest. Canonical artifacts — Phase 0/1/4/5 covered;
+# the §3.10 RQ2/RQ4 prose<->json bridge entries are pending (see WHY below).
 #
 # This file enumerates every numerical value cited in the manuscript that is
 # derived from a CSV/JSON/JSON artifact, paired with its source artifact and a
@@ -14,11 +15,16 @@
 #   4. Artifact provenance: each entry's verifier function reads the source
 #      artifact and confirms the manifest's raw_value matches.
 #
-# WHY THIS IS A STUB. Five entries; the canonical re-run is in flight. Once
-# Phase 0/1/5 canonical artifacts land, this file is replaced wholesale with
-# ~25-30 entries against the canonical CSVs. The current entries exercise
-# every validator path against legacy artifacts so the validator is
-# pressure-tested before canonical authoring begins.
+# STATE. ~36 entries against the canonical CSVs: Phase 0 (SA cv/held-out),
+# the Phase 1 ablation panel (C0-C4 medians, Friedman chi2, C0->C4 median diffs,
+# Cohen's d_z, VDA, JFI-parity W, RQ3 within-C4 Spearman), and the Goodhart /
+# distance-weight / LSAP-threshold sensitivity numbers. What is NOT yet here is
+# the §3.10 RQ2/RQ4 prose<->json bridge: those entries are authored at close-out
+# step G, because their raw_values must be read from the regenerated
+# manuscript_values_phase6.json (after the multi-algo re-run) and anchored to the
+# §3.10 prose once written — never hand-transcribed ahead of either input. The
+# json<->canonical edge for RQ2/RQ4 is already guarded by
+# tests/test_phase6_canonical_values.py; this file adds the prose<->json half.
 #
 # ENTRY SCHEMA:
 #   key:               stable identifier (used in failure messages)

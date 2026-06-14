@@ -45,6 +45,7 @@ def values():
         "track_b": gen.track_b(fd),
         "rq2": gen.rq2_all_budgets(fd, SCRIPTS),
         "rq3": gen.rq3_pooled(fd),
+        "rq4": gen.rq4_evals_to_best(fd, CANONICAL_BUDGET),
     }
 
 
@@ -97,6 +98,35 @@ def test_rq2_dominance_over_other_scalars(values):
         assert pairs[s]["vda_A"] > 0.80, (s, pairs[s]["vda_A"])
         assert pairs[s]["significant"] is True
         assert pairs[s]["p_holm"] < 0.01, (s, pairs[s]["p_holm"])
+
+
+# ── RQ4: evals_to_best six-way Friedman (RED until the multi-algo re-run) ──
+# Structural pins only: they guard that the pre-registered six-way omnibus ran on
+# real, non-sentinel data for all six algorithms. The specific p/significance is
+# folded in alongside the §3.10 RQ4 prose after the re-run (step G).
+
+def test_rq4_available_after_rerun(values):
+    # Red until F: the canonical multi-algo re-run must finalize the RQ4 omnibus
+    # CSV. Absent → NSGA-II evals_to_best not yet instrumented + re-run.
+    assert values["rq4"].get("available") is True, values["rq4"].get("reason")
+
+
+def test_rq4_omnibus_over_all_six_algorithms(values):
+    # The anti-sentinel guarantee: all six algorithms (including NSGA-II) entered
+    # the omnibus on real data — no silent five-algorithm subset, no constant -1
+    # column corrupting the rank-ANOVA.
+    rq4 = values["rq4"]
+    assert rq4.get("available") is True, rq4.get("reason")
+    assert set(rq4["algorithms"]) == {"rs", "hc", "sa", "sga", "nsga2", "ts"}
+    assert rq4["df"] == 5
+
+
+def test_rq4_omnibus_statistic_is_real(values):
+    rq4 = values["rq4"]
+    assert rq4.get("available") is True, rq4.get("reason")
+    assert rq4["chi2"] == rq4["chi2"] and rq4["chi2"] > 0  # finite (not NaN), positive
+    assert 0.0 <= rq4["p_friedman"] <= 1.0
+    assert rq4["n"] > 0
 
 
 # ── RQ3: pooled Spearman rho — signs are load-bearing for the 3-test defense ──

@@ -73,6 +73,62 @@ def rq2_all_budgets(finalize_dir: Path, scripts_dir: Path) -> dict:
     return out
 
 
+def rq4_evals_to_best(finalize_dir: Path, budget: int = 500000) -> dict:
+    """RQ4 anytime-composite: the evals_to_best Friedman omnibus across all six
+    algorithms, read single-source from analyze_benchmark's structured CSV
+    (rq4_friedman_evals_to_best.csv).
+
+    Active verification, two regimes:
+      - CSV absent  → RQ4 not yet finalized (the pre-re-run state). Return
+        {"available": False, ...} so RQ2/RQ3 still regenerate; the pin stays red.
+      - CSV present but REFUSED / NaN chi2 / missing an algorithm → a corrupt or
+        partial omnibus (the NSGA-II sentinel defect). RAISE — RQ4 is pre-
+        registered over all six, so a broken result is a hard stop, never a
+        silently-emitted number.
+    """
+    # The canonical-budget evals_to_best Friedman is written by analyze_benchmark
+    # to <finalize>/stats_b<budget>/stats/. Prefer a top-level copy if a finalize
+    # script surfaced one; otherwise read the per-budget stats the Phase 7 loop
+    # already produces (works for both submit_500k_phase67.sh and stage2 without
+    # editing their assembly).
+    candidates = [
+        finalize_dir / "rq4_friedman_evals_to_best.csv",
+        finalize_dir / f"stats_b{budget}" / "stats" / "rq4_friedman_evals_to_best.csv",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        return {"available": False,
+                "reason": (f"rq4_friedman_evals_to_best.csv not found (looked in finalize "
+                           f"root and stats_b{budget}/stats) — RQ4 re-run not yet finalized")}
+    with open(path) as f:
+        row = next(csv.DictReader(f))
+    note = (row.get("note") or "").strip()
+    chi2 = (row.get("chi2") or "").strip()
+    if note or chi2.lower() in ("", "nan"):
+        raise ValueError(
+            f"RQ4 Friedman present but unusable (note={note!r}, chi2={chi2!r}); "
+            f"refusing to emit a manuscript value. Re-run the multi-algo benchmark "
+            f"with NSGA-II evals_to_best instrumented."
+        )
+    algos = [a for a in (row.get("algorithms") or "").split(",") if a]
+    expected = ["rs", "hc", "sa", "sga", "nsga2", "ts"]
+    missing = [a for a in expected if a not in algos]
+    if missing:
+        raise ValueError(
+            f"RQ4 omnibus is missing algorithms {missing} (got {algos}); the "
+            f"pre-registered test is paired across all six."
+        )
+    return {
+        "available": True,
+        "chi2": float(chi2),
+        "p_friedman": float(row["p_friedman"]),
+        "df": int(float(row["df"])),
+        "n": int(float(row["n"])),
+        "significant": str(row.get("significant", "")).strip().lower() in ("true", "1"),
+        "algorithms": algos,
+    }
+
+
 def rq3_pooled(finalize_dir: Path) -> dict:
     """Pooled Spearman rho (+sign) per metric from rq3_spearman.csv."""
     path = finalize_dir / "rq3_spearman.csv"
@@ -109,6 +165,7 @@ def main() -> int:
         "track_b": track_b(fd),
         "rq2_by_budget": rq2_all_budgets(fd, args.scripts_dir),
         "rq3_pooled_spearman": rq3_pooled(fd),
+        "rq4_evals_to_best": rq4_evals_to_best(fd, args.budget),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n")

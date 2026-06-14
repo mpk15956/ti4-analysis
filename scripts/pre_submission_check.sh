@@ -25,14 +25,17 @@ cd "$ROOT"
 OVERALL_OK=1
 
 # ── Check 1: placeholder regex ─────────────────────────────────────────────
-# Scope: manuscript-facing directories only. docs/audit/ and docs/lit_review/
-# are intentionally excluded — those are research/historical notes that
-# legitimately reference legacy artifacts (e.g., the audit doc records that
-# 5:5:3 was the legacy weighting; the lit_review summarizes external sources
-# that use those weights). Firing the gate on those would be a false positive.
+# Scope: manuscript-facing text — README.md (the repo front page / methods
+# narrative) plus docs/methodology/ and docs/limitations/. README IS scanned:
+# it must not contradict the 1:1:1 canonical, and the gate previously skipped it,
+# which let stale 5:5:3 prose drift there uncaught (June 2026). docs/audit/ and
+# docs/lit_review/ stay excluded — those are research/historical notes that
+# legitimately reference legacy artifacts (e.g., the audit doc records that 5:5:3
+# was the legacy weighting; the lit_review summarizes external sources that use
+# those weights). Firing the gate on those would be a false positive.
 echo "── Pre-submission check 1: placeholder tokens ──"
 PLACEHOLDER_PATTERN='PENDING_MAIN_EXPERIMENT|PENDING_CANONICAL_[A-Z0-9_]+|⚠ INSERT|\[INSERT\]|\bTBD\b|\b5:5:3\b|replace with your|must be re-run'
-MANUSCRIPT_DIRS="docs/methodology/ docs/limitations/"
+MANUSCRIPT_DIRS="README.md docs/methodology/ docs/limitations/"
 MATCHES=$(grep -rE "$PLACEHOLDER_PATTERN" $MANUSCRIPT_DIRS 2>/dev/null || true)
 if [ -z "$MATCHES" ]; then
   echo "  OK — 0 placeholder matches in manuscript-facing docs ($MANUSCRIPT_DIRS)"

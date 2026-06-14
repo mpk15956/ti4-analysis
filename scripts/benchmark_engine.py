@@ -230,8 +230,10 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
 
 def _simplex_weight_grid(step: float):
     """
-    All (w_mi, w_jfi, w_lp) triples on the 3-simplex at the given step size,
-    always including the canonical 5:5:3 weight.
+    All (w_mi, w_jfi, w_lp) triples on the uniform 3-simplex grid at the given
+    step size — a weight-sensitivity / ranking-stability sweep that privileges
+    no particular weighting. Opt-in via --weight-grid-step; the canonical run
+    uses --conditions or the single 1:1:1 default vector, not this grid.
 
     With step=0.2  → 21 vectors (C(7,2) on a 5-point simplex).
     With step=0.1  → 66 vectors.
@@ -242,8 +244,6 @@ def _simplex_weight_grid(step: float):
         for j in range(n + 1 - i):
             k = n - i - j
             vectors.add((round(i / n, 8), round(j / n, 8), round(k / n, 8)))
-    # Always include the canonical 5:5:3 weight
-    vectors.add((round(5 / 13, 8), round(5 / 13, 8), round(3 / 13, 8)))
     return sorted(vectors)
 
 
@@ -590,10 +590,22 @@ def _run_seed(job):
             for chain_id in range(n_chains):
                 run_seed = seed * 1000 + chain_id
                 nsga_traj = []
+                # RQ4 anytime-composite instrumentation (pure observation).
+                # Per-generation rank-0 minimum composite, scored on the canonical
+                # 1:1:1 weights each score object already carries (NSGA-II never
+                # sets weights, so MultiObjectiveScore defaults to 1:1:1). The
+                # callback is a return-ignored sink: nsga2_optimize never reads its
+                # result, so it cannot perturb the search (proven byte-identical in
+                # tests/test_nsga2_optimizer.py::test_trajectory_callback_is_pure_sink).
+                nsga_gen_min_composite = []
 
                 def _nsga_cb(gen, rank0_scores):
                     hv = _hv3d(rank0_scores, ref_hv)
                     nsga_traj.append((gen * nsga_pop, hv))
+                    if rank0_scores:
+                        nsga_gen_min_composite.append(
+                            (gen * nsga_pop, min(s.composite_score() for s in rank0_scores))
+                        )
 
                 nsga_map = initial_map.copy()
                 t0 = time.time()
@@ -614,8 +626,23 @@ def _run_seed(job):
                     normalizer_sigma=eval_kw.get("normalizer_sigma"),
                 )
                 best_score = min(front, key=lambda x: x[1].composite_score())[1]
+                # evals_to_best (RQ4 anytime-composite): the first generation whose
+                # rank-0 elite already held a map at least as good (composite <=) as
+                # the final reported best. Defined consistently with best_score above
+                # so the recorded value and its eval index name the same quality.
+                # Generation granularity (multiples of nsga_pop) is inherent to a
+                # population method; a gen-0 seed that survives is attributed to the
+                # first generation (the earliest observable point). Stays -1 only if
+                # no generation ran, which the RQ4 Friedman guard then rejects.
+                best_comp = best_score.composite_score()
+                nsga_etb = -1
+                for evals_at_gen, gen_min in nsga_gen_min_composite:
+                    if gen_min <= best_comp:
+                        nsga_etb = evals_at_gen
+                        break
                 rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
-                                     len(front), budget, chain_id=chain_id, condition="none", map_obj=nsga_map))
+                                     len(front), budget, evals_to_best=nsga_etb,
+                                     chain_id=chain_id, condition="none", map_obj=nsga_map))
 
                 # Save Pareto archive for Track B quality indicators
                 archive_rows = []

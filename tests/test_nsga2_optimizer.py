@@ -396,6 +396,54 @@ class TestNsga2Optimize:
                         f"is dominated by solution {j} (gap={b.score.balance_gap:.2f})"
                     )
 
+    def test_trajectory_callback_is_pure_sink(self):
+        """
+        The trajectory_callback is a return-ignored observer: nsga2_optimize must
+        produce a byte-identical Pareto front whether or not a callback runs, and
+        whether or not that callback reads composite_score (the exact work the RQ4
+        evals_to_best hook does in benchmark_engine.py).
+
+        This is the instrumentation-purity guarantee from the close-out plan: it
+        certifies the RQ4 hook cannot perturb the search, which is what lets the
+        re-run stay the single canonical source for RQ2/RQ3. A red here means
+        exactly one thing — the hook altered the search — and is kept separate
+        from the post-rebuild dependency-skew pins.
+        """
+        ti4_map, evaluator = _make_six_system_map()
+
+        def run(with_hook):
+            # Reset the global numpy RNG before each run so the ONLY difference
+            # between the two runs is the presence of the callback, not global
+            # RNG drift left over from the first run.
+            np.random.seed(0)
+            fired = []
+            cb = None
+            if with_hook:
+                def cb(gen, rank0_scores):
+                    if rank0_scores:  # mirror the benchmark hook exactly
+                        _ = min(s.composite_score() for s in rank0_scores)
+                    fired.append(gen)
+            front = nsga2_optimize(
+                ti4_map.copy(), evaluator,
+                generations=6, population_size=12,
+                random_seed=2024, verbose=False,
+                trajectory_callback=cb,
+            )
+            rows = [
+                (s.jains_index, s.morans_i, s.lisa_penalty, s.composite_score())
+                for _, s in front
+            ]
+            return rows, fired
+
+        rows_plain, _ = run(with_hook=False)
+        rows_hooked, fired = run(with_hook=True)
+
+        assert fired, "callback never fired — test would be vacuous"
+        assert rows_plain == rows_hooked, (
+            "trajectory_callback altered the NSGA-II search — the RQ4 hook is not a "
+            "pure sink; single-source provenance for RQ2/RQ3 is broken"
+        )
+
     def test_warm_seeds_not_worse_than_cold_on_average(self):
         """
         Warm-seeded individuals (HC-optimised) should have lower average balance_gap
