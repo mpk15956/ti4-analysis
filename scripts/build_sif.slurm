@@ -79,13 +79,21 @@ df -h "$SCRATCH"
 echo ""
 echo "--- Stage 1: podman build (OCI image) ---"
 $PODMAN info --format '{{.Host.OS}} {{.Host.Arch}} runtime={{.Host.OCIRuntime.Name}} graphDriver={{.Store.GraphDriverName}}' || true
-# --network=host is REQUIRED here: rootless podman in a batch job (no systemd
-# user session / logind) has no working default RUN-step network on this cluster,
-# so the `pixi install` layer cannot reach conda/pypi and the build dies silently
-# (~16 s, no error flushed). Host networking lets the RUN step download packages.
-# Verified June 2026: plain `podman build` fails at STEP 5, `--network=host` builds
-# clean. (The "systemd sandbox cgroup" warning that remains is benign.)
-$PODMAN build --network=host -t ti4-analysis:latest -f Containerfile .
+# TWO things are REQUIRED for this to build on teach (both verified June 2026):
+#  (1) --network=host: rootless podman in a batch job (no systemd user session)
+#      has no working default RUN-step network on this cluster, so the
+#      `pixi install` layer cannot reach conda/pypi.
+#  (2) podman build output MUST be redirected to a LOCAL file, not written
+#      straight to the NFS-backed slurm-%j.out. With the build stream going
+#      directly to NFS the RUN step dies at ~18 s and the error never even
+#      flushes (silent failure); the IDENTICAL build with output -> /tmp local
+#      succeeds. Proven: diag 28680 (output->NFS) FAILED, 28681 (output->/tmp)
+#      PASSED, same node, same flags. We tee the local log back out afterward.
+# (The residual "systemd sandbox cgroup" warning is benign.)
+BUILD_LOG="$SCRATCH/podman-build.log"
+$PODMAN build --network=host -t ti4-analysis:latest -f Containerfile . > "$BUILD_LOG" 2>&1 \
+    || { echo "podman build FAILED -- tail of local build log:"; tail -60 "$BUILD_LOG"; exit 1; }
+tail -25 "$BUILD_LOG"
 
 echo ""
 echo "--- Stage 2: podman save (OCI archive) ---"
