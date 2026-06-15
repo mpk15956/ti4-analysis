@@ -91,9 +91,24 @@ $PODMAN info --format '{{.Host.OS}} {{.Host.Arch}} runtime={{.Host.OCIRuntime.Na
 #      PASSED, same node, same flags. We tee the local log back out afterward.
 # (The residual "systemd sandbox cgroup" warning is benign.)
 BUILD_LOG="$SCRATCH/podman-build.log"
-$PODMAN build --network=host -t ti4-analysis:latest -f Containerfile . > "$BUILD_LOG" 2>&1 \
-    || { echo "podman build FAILED -- tail of local build log:"; tail -60 "$BUILD_LOG"; exit 1; }
-tail -25 "$BUILD_LOG"
+# Retry loop: rootless podman build's RUN step is intermittently flaky on teach.
+# The RUN-container setup loses a race a fraction of runs and dies in ~15 s,
+# silently (the failure is so abrupt the error does not even reach the local
+# log). It is NOT a deterministic config error -- the IDENTICAL invocation
+# passes most runs and fails some (verified across ~12 jobs, June 2026). Cached
+# STEPS 1-4 make a retry cheap, so we just re-attempt the build until it sticks.
+# (--network=host is required so the RUN-step pixi install can reach the network
+# in a batch job with no systemd user session; the residual systemd-cgroup
+# warning is benign.)
+build_ok=0
+for attempt in 1 2 3 4 5 6 7 8; do
+    echo "--- podman build attempt $attempt/8 ($(date +%T)) ---"
+    if $PODMAN build --network=host -t ti4-analysis:latest -f Containerfile . > "$BUILD_LOG" 2>&1; then
+        build_ok=1; echo "podman build OK on attempt $attempt"; tail -20 "$BUILD_LOG"; break
+    fi
+    echo "attempt $attempt failed; tail of local log:"; tail -12 "$BUILD_LOG"; sleep 10
+done
+[ "$build_ok" = 1 ] || { echo "FATAL: podman build failed after 8 attempts"; exit 1; }
 
 echo ""
 echo "--- Stage 2: podman save (OCI archive) ---"
