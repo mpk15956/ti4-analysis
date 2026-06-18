@@ -1,6 +1,6 @@
 # Formal Methodology Section (Paper Draft)
 
-*Standalone Methodology section for the academic paper, suitable for games / PCG / AI-in-Games venues. Copy-paste ready; fill in section number (e.g. 3) and cross-references as required by your target journal.*
+*Standalone methodology section for the academic paper: a spatial-statistics methodology contribution, suitable for quantitative-geography and spatial-analysis venues.*
 
 ---
 
