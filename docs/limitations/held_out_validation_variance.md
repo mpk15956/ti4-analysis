@@ -1,5 +1,20 @@
 # Held-Out Validation Variance (CV vs Held-Out)
 
+> **Status (2026-06-18): pre-canonical internal note, superseded by Methodology §3.7 (B).**
+> This note was scaffolding written before the Phase 0 SA tuning was run. Its inline
+> figures (the "±0.0028"/"±0.0299" stds and the "0.0545 → 0.0599" means below) are
+> *illustrative stubs*, not canonical numbers, and they assume the held-out spread
+> comes out *larger* than the cross-validation spread. The canonical Phase 0 result
+> (Methodology §3.7 (B), single-sourced from `best_params.json` and pinned by the
+> `phase0_sa_cv_*` / `phase0_sa_held_out_*` verifiers in `tests/test_manuscript_values.py`)
+> is the opposite and stronger: the held-out distribution is comparable to and
+> slightly *tighter* than CV, and its mean falls slightly *below* CV, so the
+> overfitting signature is absent rather than present-and-explained. Read §3.7 (B)
+> for the real numbers and finding. The (A) rugged-landscape framing below still
+> holds and is carried into §3.7 (A); the (B) "variance increases" framing here is
+> the stub premise that did not materialize, kept only as the reasoning we were
+> prepared to give had it.
+
 ## The phenomenon
 
 After hyperparameter tuning with Optuna, the pipeline runs:
@@ -40,10 +55,10 @@ python scripts/optimize_hyperparameters.py --algo ts --trials 50 --eval-seeds 10
 
 read the output directory (e.g. `output/optuna_YYYYMMDD_HHMMSS/best_params.json`). Fields:
 
-- `cv_mean`, `cv_std` — cross-validation summary
-- `held_out_mean`, `held_out_std` — held-out validation summary
+- `cv_mean`, `cv_std`: cross-validation summary
+- `held_out_mean`, `held_out_std`: held-out validation summary
 
-Use these values in §3.7 and in the Response to Reviewers (template entry #4). Replace the placeholders in the methodology (e.g. "0.0545 ± 0.0028" and "0.0599 ± 0.0299") with your actual numbers.
+These fields are the single source for the §3.7 (B) figures. The canonical values are already reported there (CV and held-out mean ± std), single-sourced from `best_params.json` and pinned by the `phase0_sa_cv_*` / `phase0_sa_held_out_*` verifiers in `tests/test_manuscript_values.py`. Do not re-transcribe them into this note: read them from `best_params.json` or §3.7 (the stub figures above are illustrative only, per the status banner).
 
 ## Implementation reference
 
