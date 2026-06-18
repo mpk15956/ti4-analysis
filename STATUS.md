@@ -7,7 +7,7 @@
 > (ephemeral); this file is the thing you read to pick up cold. The current
 > close-out arc plan is `~/.claude/plans/where-we-are-composed-snail.md`.
 
-**Last updated:** 2026-06-18 (close-out arc: §3.10 RQ2/RQ4 drafted + depth-vs-breadth mechanism block; breadth-tax figure single-sourced; §3.10 prose<->json manifest bridge added; Phase 6 pins 11/11)
+**Last updated:** 2026-06-18 (close-out arc **COMPLETE, gate-green on GACRC**: finalize job 28688 reproduced the RQ4 splice in-SIF and regenerated the json [Phase 6 pins 11/11]; gate job 28689 + login grep ran all four `pre_submission_check.sh` checks green where the Phase 0/1/4/5 artifacts live)
 
 ---
 
@@ -44,7 +44,7 @@ Endpoint: gate-green, ready to format and submit. Plan file has the full arc.
 | D | Review + push (close-out commits) | user | pending; does NOT block §3.10 |
 | E | `.sif` rebuild + provenance record + in-SIF canary | GACRC (sbatch) | **Done** (job 28683) |
 | F | NSGA-II `evals_to_best` fill (Option 1, ≤200k) + bit-identical seam check + six-way splice + finalize + regenerate json | GACRC + elis | **Done this session** (job 28684; see audit doc) |
-| G | Fold RQ4/RQ2 numbers into §3.10; add RQ4 manifest entries (step B); full gate | GACRC | §3.10 prose + manifest **done**; **full gate pending** (`submit_rq4_finalize.sh` then `test_manuscript_values` where Phase 0/1 artifacts live) |
+| G | Fold RQ4/RQ2 numbers into §3.10; add RQ4 manifest entries (step B); full gate | GACRC | **Done, gate-green.** §3.10 prose + manifest done; finalize job 28688 (`submit_rq4_finalize.sh`) regenerated the json + Phase 6 pins 11/11; gate job 28689 (`submit_gate.sh`, in-SIF) ran checks 2/3 green (`test_methodology_cross_refs` 3/3, `test_manuscript_values` 3/3) and checks 1/4 passed via login grep, so all four `pre_submission_check.sh` checks pass where the Phase 0/1/4/5 artifacts live |
 
 RQ4 needed a re-run because NSGA-II's `evals_to_best` was never instrumented (a
 `-1` sentinel) and is not backfillable; the A fix records it as the canonical
@@ -55,6 +55,20 @@ NSGA-II maps **bit-identically** (final_tile_layout 100% exact, every metric
 Δ = 0). Six-way Friedman is significant at every budget ≤200k (canonical 200k:
 chi2 = 456.80, p = 1.7e-96, df = 5, n = 100). Full diagnostic narrative:
 `docs/audit/rq4_evals_to_best_close_2026-06.md`.
+
+**Gate execution + the host-bind overlay (plan step I, deferred by design).** The
+finalize (`submit_rq4_finalize.sh`) and gate (`submit_gate.sh`) jobs both run
+in-SIF with the current host `src/`+`scripts/`+`tests/`+`docs/`+`output/` bound
+over the image's baked copies. The `.sif` was built at `6a939ca` (pre-§3.10,
+pre-RQ4-generator), so the overlay is what feeds the SIF the committed `1444280`
+tree; the image supplies only the frozen dependency environment. Plan step I
+("retire the host-bind overlay LAST") is **note-and-deferred**: the cross-container
+seam was proved bit-identical (job 28688 step 1, 2100/2100 layouts exact, every
+metric Δ = 0), so the `.sif` environment is already validated against the banked
+run, and rebuilding it solely to bake `1444280` and drop the overlay buys
+vanishing defensibility against a skeptic while costing a full podman rebuild. The
+overlay binds version-controlled, committed code over a seam-validated environment;
+that is methodologically sound, not a workaround to retire before submission.
 
 ---
 
@@ -82,7 +96,7 @@ Verified this session (`pixi run --frozen -e default pytest ...`):
 
 | Suite | State |
 |-------|-------|
-| Full suite | **182 passed, 2 skipped, 1 failed** — the lone failure is `test_manuscript_values`; all 32 sub-failures are **absent Phase 0/1/4/5 artifacts** (GACRC-only, not a regression). The 7 new §3.10 prose<->json entries all pass (anchor/collision/existence/provenance). Green on GACRC where artifacts live |
+| Full suite | **182 passed, 2 skipped, 1 failed** on elis; the lone failure is `test_manuscript_values`, all 32 sub-failures are **absent Phase 0/1/4/5 artifacts** (GACRC-only, not a regression). The 7 new §3.10 prose<->json entries all pass (anchor/collision/existence/provenance). **Confirmed green on GACRC** (job 28689, in-SIF): `test_manuscript_values` 3/3 + `test_methodology_cross_refs` 3/3 against the bound current tree + regenerated finalize json |
 | `tests/test_phase6_canonical_values.py` | **11/11 pass** against the rq4splice finalize dir: 3 RQ4 omnibus pins + the new breadth-tax pin (median 134,100 / 67% of budget, json<-csv) + RQ2/RQ3/Track B reproduce banked values (single-source proof) |
 | `tests/test_nsga2_optimizer.py` | 22 passed, incl. `test_trajectory_callback_is_pure_sink` (RQ4 hook is a byte-identical pure sink) |
 | Cross-container seam (`scripts/rq4_verify_cross_container.py`) | fresh `.sif` reproduces banked NSGA-II maps **bit-identically** (2100/2100 layouts exact, every metric Δ = 0) |
