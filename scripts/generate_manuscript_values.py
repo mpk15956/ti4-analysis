@@ -129,6 +129,54 @@ def rq4_evals_to_best(finalize_dir: Path, budget: int = 500000) -> dict:
     }
 
 
+def rq4_breadth_tax(finalize_dir: Path, budget: int = 200000) -> dict:
+    """NSGA-II's anytime-composite 'breadth tax': the median evals_to_best across
+    all 100 seeds x 3 chains at which NSGA-II first reached its best 1:1:1
+    composite, per budget <= the RQ4 budget. Read single-source from the merged
+    six-way results.csv the Phase 7 loop copies into stats_b<budget>/ (each copy
+    holds EVERY budget, not just <budget>). The canonical figure (at `budget`)
+    and its budget-fraction are the quantitative anchor of the depth-vs-breadth
+    mechanism the 3.10 prose argues; emitting them here keeps them single-source
+    rather than hand-copied into the manuscript.
+
+    Mirrors rq4_evals_to_best's two-regime posture: returns {"available": False}
+    when the per-budget results.csv is absent (pre-re-run state) so RQ2/RQ3 still
+    regenerate; RAISES if a sentinel (-1) survives among the budgets it covers,
+    since the fill is supposed to have populated every nsga2 row at budget<=200k.
+    """
+    path = finalize_dir / f"stats_b{budget}" / "results.csv"
+    if not path.exists():
+        return {"available": False,
+                "reason": (f"stats_b{budget}/results.csv not found — the RQ4 "
+                           f"NSGA-II fill is not yet finalized into this dir")}
+    by_budget = {}
+    with open(path) as f:
+        for r in csv.DictReader(f):
+            if r["algorithm"] != NSGA:
+                continue
+            b = int(float(r["budget"]))
+            if b > budget:
+                continue
+            etb = float(r["evals_to_best"])
+            if etb < 0:
+                raise ValueError(
+                    f"NSGA-II evals_to_best sentinel ({etb}) at budget {b} in "
+                    f"{path}; the fill should populate every nsga2 row at "
+                    f"budget<={budget}. Refusing to emit a breadth-tax median.")
+            by_budget.setdefault(b, []).append(etb)
+    if not by_budget:
+        raise ValueError(f"No nsga2 rows at budget<={budget} in {path}")
+    medians = {str(b): statistics.median(v) for b, v in sorted(by_budget.items())}
+    canon = medians[str(budget)]  # direct subscript: a missing canonical budget is a hard error
+    return {
+        "available": True,
+        "budget": budget,
+        "nsga2_median_evals_to_best": canon,
+        "budget_fraction": canon / budget,
+        "nsga2_median_evals_to_best_by_budget": medians,
+    }
+
+
 def rq3_pooled(finalize_dir: Path) -> dict:
     """Pooled Spearman rho (+sign) per metric from rq3_spearman.csv."""
     path = finalize_dir / "rq3_spearman.csv"
@@ -174,6 +222,7 @@ def main() -> int:
         "rq2_by_budget": rq2_all_budgets(fd, args.scripts_dir),
         "rq3_pooled_spearman": rq3_pooled(fd),
         "rq4_evals_to_best": rq4_evals_to_best(fd, args.rq4_budget),
+        "rq4_breadth_tax": rq4_breadth_tax(fd, args.rq4_budget),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n")

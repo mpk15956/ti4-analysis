@@ -116,8 +116,30 @@ composite optimum it never selects for).
   and RQ2/RQ3/Track B are the banked in-SIF CSVs reused verbatim, so the assembled
   JSON is what the SIF emits.
 
-## Still the user's
+## Folding into §3.10 (done at close-out)
 
-The §3.10 RQ2 depth-vs-breadth mechanism prose (and the one-sentence RQ4 result
-line + construct caveat). The numbers above are ready to fold in; the prose is the
-intellectual spine and is the user's to write.
+The §3.10 prose is now drafted from the user/advisor-provided text: the RQ2 and
+RQ4 **Result** lines carry the exact crossover and omnibus numbers, and a
+**Mechanism: depth versus breadth** block carries the depth-vs-breadth argument,
+the construct caveat (a scalar `evals_to_best` is a real convergence measure for
+the five composite optimizers but a projection for NSGA-II), and the portfolio
+framing (population breadth is the deliverable, not a tax, when a set of maps is
+wanted). Every cited number is single-sourced and pinned twice over:
+`tests/test_phase6_canonical_values.py` on the json<-csv edge (now 11/11), and
+seven new §3.10 entries in `tests/manuscript_values.yaml` on the prose<->json
+edge.
+
+**The breadth-tax figure was made canonical, not hand-copied.** The "134,100
+(~67% of budget)" anchor is the raw median of NSGA-II's `evals_to_best` across all
+300 runs (100 seeds x 3 chains) at b = 200,000, computed by a new generator
+function (`generate_manuscript_values.py::rq4_breadth_tax`, fail-loud on any
+surviving `-1` sentinel) and emitted into `manuscript_values_phase6.json`. One
+honesty note recorded so it is not mis-stated in revision: the *fractional* tax is
+largest at small budgets (about 83% at b = 1,000) and *eases* to ~67% at
+b = 200,000 even as the absolute median rises (832 -> 134,100). So the prose claims
+only the canonical 67% and never that the fraction grows with budget; the easing
+fraction is itself consistent with the RQ2 crossover (NSGA-II amortizes its breadth
+cost as budget grows).
+
+The depth-vs-breadth argument remains the user's to review and refine; this pass
+places their provided prose and guarantees its numbers.

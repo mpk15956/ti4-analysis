@@ -1,5 +1,5 @@
-# Manuscript values manifest. Canonical artifacts — Phase 0/1/4/5 covered;
-# the §3.10 RQ2/RQ4 prose<->json bridge entries are pending (see WHY below).
+# Manuscript values manifest. Canonical artifacts — Phase 0/1/4/5 covered, plus
+# the §3.10 RQ2/RQ4 prose<->json bridge (added at close-out, June 2026).
 #
 # This file enumerates every numerical value cited in the manuscript that is
 # derived from a CSV/JSON/JSON artifact, paired with its source artifact and a
@@ -18,12 +18,13 @@
 # STATE. ~36 entries against the canonical CSVs: Phase 0 (SA cv/held-out),
 # the Phase 1 ablation panel (C0-C4 medians, Friedman chi2, C0->C4 median diffs,
 # Cohen's d_z, VDA, JFI-parity W, RQ3 within-C4 Spearman), and the Goodhart /
-# distance-weight / LSAP-threshold sensitivity numbers. What is NOT yet here is
-# the §3.10 RQ2/RQ4 prose<->json bridge: those entries are authored at close-out
-# step G, because their raw_values must be read from the regenerated
-# manuscript_values_phase6.json (after the multi-algo re-run) and anchored to the
-# §3.10 prose once written — never hand-transcribed ahead of either input. The
-# json<->canonical edge for RQ2/RQ4 is already guarded by
+# distance-weight / LSAP-threshold sensitivity numbers. Added at the June 2026
+# close-out: the §3.10 RQ2/RQ4 prose<->json bridge (RQ2 NSGA-II-vs-scalar VDA
+# crossover points, the RQ4 six-way Friedman chi2, and the NSGA-II breadth-tax
+# median + budget fraction). Their raw_values are read from the regenerated
+# manuscript_values_phase6.json (glob-resolved from the latest rq4-available
+# finalize dir) and anchored to the now-written §3.10 prose, never hand-
+# transcribed. The json<->canonical edge for RQ2/RQ4 is guarded by
 # tests/test_phase6_canonical_values.py; this file adds the prose<->json half.
 #
 # ENTRY SCHEMA:
@@ -489,6 +490,97 @@ entries:
     pattern: "W = (?P<value>0\\.0)"
     source_artifact: output/paper1_canonical_20260509_134024/benchmark_20260509_191848/results.csv
     verifier: phase1_jfi_parity_w_c4
+    min_count: 1
+
+  # ── §3.10 RQ2/RQ4 prose<->json bridge (close-out, June 2026) ──
+  # Verify the numbers written into §3.10 match the regenerated
+  # manuscript_values_phase6.json (prose<->json edge); the json<->csv edge is
+  # guarded by tests/test_phase6_canonical_values.py. All Tier-2, anchored to
+  # §3.10 — a bare VDA (0.44) or a budget fraction (67%) is not globally unique.
+  # source_artifact is descriptive: each verifier globs the latest finalize dir
+  # carrying an rq4-available manuscript_values_phase6.json.
+
+  # RQ2 NSGA-II-vs-SA crossover: n.s. at b1000 (A=0.44), significant-but-
+  # negligible at the 500k canonical (A=0.54).
+  - key: rq2_sa_vda_b1000
+    raw_value: 0.4406
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq2_by_budget.1000.pairs.sa.vda_A)
+    verifier: rq2_sa_vda_b1000
+    min_count: 1
+
+  - key: rq2_sa_vda_b500k
+    raw_value: 0.5363
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq2_by_budget.500000.pairs.sa.vda_A)
+    verifier: rq2_sa_vda_b500k
+    min_count: 1
+
+  # RQ2 dominance over the other scalars at 500k: range endpoints cited in the
+  # prose (A = 0.86 for SGA up to 0.99 for HC).
+  - key: rq2_sga_vda_b500k
+    raw_value: 0.8632
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq2_by_budget.500000.pairs.sga.vda_A)
+    verifier: rq2_sga_vda_b500k
+    min_count: 1
+
+  - key: rq2_hc_vda_b500k
+    raw_value: 0.9896
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq2_by_budget.500000.pairs.hc.vda_A)
+    verifier: rq2_hc_vda_b500k
+    min_count: 1
+
+  # RQ4 six-way Friedman omnibus chi2 at the 200k canonical RQ4 budget.
+  - key: rq4_friedman_chi2_b200k
+    raw_value: 456.803372392112
+    format: "{:.2f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq4_evals_to_best.chi2)
+    verifier: rq4_friedman_chi2_b200k
+    min_count: 1
+
+  # RQ4 NSGA-II breadth tax: median evals_to_best at 200k and its budget fraction.
+  - key: rq4_breadth_tax_median_b200k
+    raw_value: 134100
+    format: "{:,.0f}"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq4_breadth_tax.nsga2_median_evals_to_best)
+    verifier: rq4_breadth_tax_median_b200k
+    min_count: 1
+
+  - key: rq4_breadth_tax_fraction_pct_b200k
+    raw_value: 67
+    format: "{}\\%"
+    files:
+      - docs/methodology/Methodology_Section.md
+    match: section
+    section_anchor: "3.10"
+    source_artifact: manuscript_values_phase6.json (rq4_breadth_tax.budget_fraction)
+    verifier: rq4_breadth_tax_fraction_pct_b200k
     min_count: 1
 
   # ── DELIBERATELY-BROKEN EXAMPLE (commented out) ──

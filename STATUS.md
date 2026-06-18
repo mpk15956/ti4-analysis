@@ -7,7 +7,7 @@
 > (ephemeral); this file is the thing you read to pick up cold. The current
 > close-out arc plan is `~/.claude/plans/where-we-are-composed-snail.md`.
 
-**Last updated:** 2026-06-18 (close-out arc: RQ4 fill complete, six-way omnibus folded in, Phase 6 pins green)
+**Last updated:** 2026-06-18 (close-out arc: §3.10 RQ2/RQ4 drafted + depth-vs-breadth mechanism block; breadth-tax figure single-sourced; §3.10 prose<->json manifest bridge added; Phase 6 pins 11/11)
 
 ---
 
@@ -37,14 +37,14 @@ Endpoint: gate-green, ready to format and submit. Plan file has the full arc.
 
 | Step | What | Where | State |
 |------|------|-------|-------|
-| §3.10 | RQ2 mechanism prose (depth-vs-breadth) + RQ4 result sentence | manuscript | **User's** — the spine; can start now against banked RQ2 |
+| §3.10 | RQ2 mechanism prose (depth-vs-breadth) + RQ4 result + construct/portfolio caveat | manuscript | **Drafted this session** from the user/advisor-provided prose (RQ2/RQ4 Result lines + mechanism block); every cited number single-sourced + pinned. For user review/refinement |
 | A | RQ4 instrumentation: NSGA-II `evals_to_best` (canonical 1:1:1, pure sink) + Friedman sentinel guard + RQ4 CSV + generator hook + pins | elis | **Done this session** (verified, see Tests) |
-| B | RQ2/RQ4 prose<->json manifest bridge entries | elis | **Deferred to G** — raw_values must be read from the regenerated json + anchored to the §3.10 prose; never hand-transcribed ahead of either |
+| B | RQ2/RQ4 prose<->json manifest bridge entries | elis | **Done this session** — 7 §3.10 Tier-2 entries + verifiers (RQ2 VDA crossover, RQ4 chi2, breadth-tax median/fraction); green against the local regenerated json (prose<->json edge) |
 | C | Doc-drift sweep (5:5:3 comment, manifest header, this file, "advantage" language) | elis | **Done** |
 | D | Review + push (close-out commits) | user | pending; does NOT block §3.10 |
 | E | `.sif` rebuild + provenance record + in-SIF canary | GACRC (sbatch) | **Done** (job 28683) |
 | F | NSGA-II `evals_to_best` fill (Option 1, ≤200k) + bit-identical seam check + six-way splice + finalize + regenerate json | GACRC + elis | **Done this session** (job 28684; see audit doc) |
-| G | Fold RQ4/RQ2 numbers into §3.10; add RQ4 manifest entries (step B); full gate | GACRC | RQ4 numbers ready; **prose is the user's** |
+| G | Fold RQ4/RQ2 numbers into §3.10; add RQ4 manifest entries (step B); full gate | GACRC | §3.10 prose + manifest **done**; **full gate pending** (`submit_rq4_finalize.sh` then `test_manuscript_values` where Phase 0/1 artifacts live) |
 
 RQ4 needed a re-run because NSGA-II's `evals_to_best` was never instrumented (a
 `-1` sentinel) and is not backfillable; the A fix records it as the canonical
@@ -62,9 +62,9 @@ chi2 = 456.80, p = 1.7e-96, df = 5, n = 100). Full diagnostic narrative:
 
 | Section | Outstanding | Source (exists when) |
 |---------|-------------|----------------------|
-| §3.10 RQ2 | mechanism prose + crossover numbers | banked now (`manuscript_values_phase6.json`); user writes prose |
-| §3.10 RQ4 | result line + omnibus numbers | **ready** (`manuscript_values_phase6.json` → `rq4_evals_to_best`: chi2 456.80, df 5, n 100, p 1.7e-96; per-budget table in the audit doc); user writes prose |
-| Manifest (step B) | §3.10 RQ2/RQ4 Tier-2 entries + verifiers | step G (prose + regenerated json) |
+| §3.10 RQ2 | mechanism prose + crossover numbers | **Drafted** (Result line + mechanism block); numbers single-sourced from `manuscript_values_phase6.json` (`rq2_by_budget`) and pinned |
+| §3.10 RQ4 | result line + omnibus numbers + breadth tax | **Drafted**; chi2 456.80 / df 5 / n 100 / p 1.7e-96 + NSGA-II median `evals_to_best` 134,100 (67% of budget), all single-sourced + pinned |
+| Manifest (step B) | §3.10 RQ2/RQ4 Tier-2 entries + verifiers | **Done** — 7 entries, green against local json |
 
 §3.7 (B) Phase 0 cv/held-out values are concrete in `Methodology_Section.md` (no
 PENDING markers remain there). RQ1/RQ3 prose and numbers are in place.
@@ -82,8 +82,8 @@ Verified this session (`pixi run --frozen -e default pytest ...`):
 
 | Suite | State |
 |-------|-------|
-| Full suite | **181 passed, 2 skipped, 1 failed** — the lone failure is `test_manuscript_values` failing on **absent Phase 0/1 artifacts** (GACRC-only; not a regression — my edits don't touch those paths) |
-| `tests/test_phase6_canonical_values.py` | **10/10 pass** against the rq4splice finalize dir: 3 RQ4 pins now green (available / all-six-df-5 / real-statistic) + RQ2/RQ3/Track B reproduce banked values (single-source proof) |
+| Full suite | **182 passed, 2 skipped, 1 failed** — the lone failure is `test_manuscript_values`; all 32 sub-failures are **absent Phase 0/1/4/5 artifacts** (GACRC-only, not a regression). The 7 new §3.10 prose<->json entries all pass (anchor/collision/existence/provenance). Green on GACRC where artifacts live |
+| `tests/test_phase6_canonical_values.py` | **11/11 pass** against the rq4splice finalize dir: 3 RQ4 omnibus pins + the new breadth-tax pin (median 134,100 / 67% of budget, json<-csv) + RQ2/RQ3/Track B reproduce banked values (single-source proof) |
 | `tests/test_nsga2_optimizer.py` | 22 passed, incl. `test_trajectory_callback_is_pure_sink` (RQ4 hook is a byte-identical pure sink) |
 | Cross-container seam (`scripts/rq4_verify_cross_container.py`) | fresh `.sif` reproduces banked NSGA-II maps **bit-identically** (2100/2100 layouts exact, every metric Δ = 0) |
 

@@ -52,6 +52,7 @@ def values():
         "rq2": gen.rq2_all_budgets(fd, SCRIPTS),
         "rq3": gen.rq3_pooled(fd),
         "rq4": gen.rq4_evals_to_best(fd, RQ4_BUDGET),
+        "rq4_breadth_tax": gen.rq4_breadth_tax(fd, RQ4_BUDGET),
     }
 
 
@@ -133,6 +134,19 @@ def test_rq4_omnibus_statistic_is_real(values):
     assert rq4["chi2"] == rq4["chi2"] and rq4["chi2"] > 0  # finite (not NaN), positive
     assert 0.0 <= rq4["p_friedman"] <= 1.0
     assert rq4["n"] > 0
+
+
+def test_rq4_breadth_tax_canonical(values):
+    # The depth-vs-breadth anchor for §3.10: at the 200k RQ4 budget NSGA-II
+    # reaches its best 1:1:1 composite only after a large but sub-budget median
+    # number of evaluations (the "breadth tax"). Guards the json<-csv edge for
+    # the 134,100 / 67% figure the §3.10 prose cites; the prose<-json edge is in
+    # manuscript_values.yaml.
+    bt = values["rq4_breadth_tax"]
+    assert bt.get("available") is True, bt.get("reason")
+    assert bt["budget"] == RQ4_BUDGET
+    assert 100_000 < bt["nsga2_median_evals_to_best"] < RQ4_BUDGET
+    assert 0.60 < bt["budget_fraction"] < 0.72
 
 
 # ── RQ3: pooled Spearman rho — signs are load-bearing for the 3-test defense ──

@@ -596,6 +596,84 @@ def _v_jfi_w_c3(rv): return _phase1_jfi_parity_wilcoxon("jfi_moran", rv)
 def _v_jfi_w_c4(rv): return _phase1_jfi_parity_wilcoxon("full_composite", rv)
 
 
+# ── §3.10 RQ2/RQ4 prose<->json bridge verifiers (close-out, June 2026) ──
+# These pin the §3.10 prose against the regenerated manuscript_values_phase6.json
+# (the prose<->json edge); the json<->csv edge is guarded by
+# tests/test_phase6_canonical_values.py. The JSON lives in a timestamped finalize
+# dir (output/paper1_500k_finalize_phase67_*_rq4splice/), regenerated on GACRC by
+# submit_rq4_finalize.sh, so the verifier globs for the latest finalize dir that
+# carries an rq4-available JSON rather than pinning a path.
+
+def _phase6_values_json() -> dict | None:
+    for d in reversed(sorted((ROOT / "output").glob("paper1_500k_finalize_phase67_*"))):
+        p = d / "manuscript_values_phase6.json"
+        if not p.exists():
+            continue
+        data = json.loads(p.read_text())
+        if data.get("rq4_evals_to_best", {}).get("available") is True:
+            return data
+    return None
+
+
+def _rq2_vda(budget: str, scalar: str, raw_value: float) -> tuple[bool, str]:
+    data = _phase6_values_json()
+    if data is None:
+        return False, "manuscript_values_phase6.json (rq4-available) not found under output/"
+    try:
+        actual = data["rq2_by_budget"][budget]["pairs"][scalar]["vda_A"]
+    except KeyError as e:
+        return False, f"rq2_by_budget[{budget}][pairs][{scalar}][vda_A] missing ({e})"
+    return (abs(actual - raw_value) <= 1e-3,
+            f"rq2 {scalar}@b{budget} vda_A = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("rq2_sa_vda_b1000")
+def _v_rq2_sa_1000(rv): return _rq2_vda("1000", "sa", rv)
+
+
+@verifier("rq2_sa_vda_b500k")
+def _v_rq2_sa_500k(rv): return _rq2_vda("500000", "sa", rv)
+
+
+@verifier("rq2_sga_vda_b500k")
+def _v_rq2_sga_500k(rv): return _rq2_vda("500000", "sga", rv)
+
+
+@verifier("rq2_hc_vda_b500k")
+def _v_rq2_hc_500k(rv): return _rq2_vda("500000", "hc", rv)
+
+
+@verifier("rq4_friedman_chi2_b200k")
+def _v_rq4_chi2(raw_value: float) -> tuple[bool, str]:
+    data = _phase6_values_json()
+    if data is None:
+        return False, "manuscript_values_phase6.json (rq4-available) not found under output/"
+    actual = data["rq4_evals_to_best"]["chi2"]
+    return (abs(actual - raw_value) <= 1e-3,
+            f"rq4 evals_to_best Friedman chi2 = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("rq4_breadth_tax_median_b200k")
+def _v_rq4_bt_median(raw_value: float) -> tuple[bool, str]:
+    data = _phase6_values_json()
+    if data is None:
+        return False, "manuscript_values_phase6.json (rq4-available) not found under output/"
+    actual = data["rq4_breadth_tax"]["nsga2_median_evals_to_best"]
+    return (abs(actual - raw_value) <= 0.5,
+            f"rq4 NSGA-II median evals_to_best @200k = {actual}; manifest raw_value = {raw_value}")
+
+
+@verifier("rq4_breadth_tax_fraction_pct_b200k")
+def _v_rq4_bt_fraction(raw_value: float) -> tuple[bool, str]:
+    data = _phase6_values_json()
+    if data is None:
+        return False, "manuscript_values_phase6.json (rq4-available) not found under output/"
+    frac = data["rq4_breadth_tax"]["budget_fraction"]
+    actual_pct = round(100.0 * frac)
+    return (abs(actual_pct - raw_value) <= 1,
+            f"rq4 breadth-tax fraction = {frac} ({actual_pct}%); manifest raw_value = {raw_value}%")
+
+
 # ── Data structures ──────────────────────────────────────────────────────
 
 
