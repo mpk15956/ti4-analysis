@@ -65,8 +65,19 @@ banked NSGA-II on `[seed, budget, chain_id]` for all 2,100 rows at budget ≤200
 The seam is closed **bit-identically**. The rebuilt `.sif` is objectively
 equivalent to the banked environment for NSGA-II, so the only thing the splice
 changes is the column that was never instrumented. This is the strongest possible
-answer to the confound question, and it is *why* the splice is trustworthy — not
+answer to the confound question, and it is *why* the splice is trustworthy, not
 the fact that the job "completed."
+
+The reason one exact-match column dominates tolerance-checking the downstream
+floats is worth keeping: the converged `final_tile_layout` is the endpoint of
+every float-comparison branch the search took (every accept/reject, every
+dominance test). A byte-identical layout therefore certifies that no comparison
+forked differently across the two environments, and every derived metric is then a
+deterministic function of that identical discrete path, identical by construction
+rather than identical within tolerance. Verifying the discrete solution is
+stronger and cheaper than diffing the continuous metrics it produces; the rule
+transfers to any multi-environment experiment whose output is the endpoint of a
+branchy computation.
 
 ## The splice
 

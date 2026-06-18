@@ -37,7 +37,7 @@ Endpoint: gate-green, ready to format and submit. Plan file has the full arc.
 
 | Step | What | Where | State |
 |------|------|-------|-------|
-| §3.10 | RQ2 mechanism prose (depth-vs-breadth) + RQ4 result + construct/portfolio caveat | manuscript | **Drafted this session** from the user/advisor-provided prose (RQ2/RQ4 Result lines + mechanism block); every cited number single-sourced + pinned. For user review/refinement |
+| §3.10 | RQ2 mechanism prose (depth-vs-breadth) + RQ4 result + construct/portfolio caveat | manuscript | **Drafted + reviewer-response pass applied:** RQ4 reframed as a declared pre-specified deviation from the registered wall-clock metric; SA effect anchored to the pre-registered A>=0.64 practical-significance line (not "negligible"); Hoos & Stützle (2004) citation; README 3.7e89->1.37e43; RQ3 pooled p dropped (pseudoreplication). Every cited number single-sourced + pinned |
 | A | RQ4 instrumentation: NSGA-II `evals_to_best` (canonical 1:1:1, pure sink) + Friedman sentinel guard + RQ4 CSV + generator hook + pins | elis | **Done this session** (verified, see Tests) |
 | B | RQ2/RQ4 prose<->json manifest bridge entries | elis | **Done this session** — 7 §3.10 Tier-2 entries + verifiers (RQ2 VDA crossover, RQ4 chi2, breadth-tax median/fraction); green against the local regenerated json (prose<->json edge) |
 | C | Doc-drift sweep (5:5:3 comment, manifest header, this file, "advantage" language) | elis | **Done** |

@@ -86,13 +86,16 @@ def test_rq2_sa_canonical_significant_but_negligible(values):
     assert abs(sa["median_nsga"] - sa["median_scalar"]) < 0.0005
 
 
-def test_rq2_sa_crossover_and_negligible_everywhere(values):
+def test_rq2_sa_crossover_and_below_threshold_everywhere(values):
     # The operational claim: once past the crossover (>= b5000) NSGA-II is
-    # consistently significant, and at EVERY budget the effect stays negligible
-    # (VDA never escapes the small band) — SA never separates like the others.
+    # consistently significant, and at EVERY budget the SA effect stays below the
+    # pre-registered practical-significance threshold (A >= 0.64; Design_Rationale
+    # section 3), so SA never separates from NSGA-II the way the other four
+    # scalars do. NB: 0.61 max is "small" by the textbook VDA bands, not
+    # "negligible"; the load-bearing line is the pre-committed 0.64, not 0.56.
     for b, panel in values["rq2"].items():
         sa = panel["pairs"]["sa"]
-        assert 0.42 < sa["vda_A"] < 0.65, (b, sa["vda_A"])
+        assert 0.42 < sa["vda_A"] < 0.64, (b, sa["vda_A"])
         if int(b) >= 5000:
             assert sa["significant"] is True, (b, sa["p_holm"])
 
