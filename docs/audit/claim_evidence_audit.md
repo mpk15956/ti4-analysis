@@ -1,5 +1,7 @@
 # Claim-Evidence Audit (May 2026)
 
+> **Closure update (2026-06-18).** This is the dated May 2026 audit, preserved verbatim as the registration trace. Several §§3.10–3.11 verdicts below (RQ2/RQ3/RQ4 "not tested", Cohen's $d_z$ "not computed", Track B "not exercised") were the audit-time state and have since been **closed** in the canonical re-run. Each is marked **SUPERSEDED** inline and the closure is summarized under §§3.10–3.11; see also `docs/audit/rq4_evals_to_best_close_2026-06.md`. The original rows are kept unchanged so the registered-then-closed provenance chain stays legible (the same "date the deviation against the registration, do not erase it" move §3.10 makes for RQ4).
+
 For every empirical or methodological claim made in the paper, this audit
 traces two parallel chains:
 
@@ -159,10 +161,12 @@ and the user-level research methodology it verifies lives at
 
 ## §§ 3.10–3.11 Null hypotheses + Statistical methods
 
+> **SUPERSEDED 2026-06-18: closed in the canonical re-run.** At audit time (May 2026) RQ2/RQ3/RQ4 and Cohen's $d_z$ were untested in the canonical run; all are now closed. RQ2 (NSGA-II vs scalar hypervolume) and RQ3 (balance-gap × spatial Spearman) are tested in §3.10 against the multi-algorithm finalize artifacts; Cohen's $d_z$ is computed by `analyze_phase1_conditions.py` and pinned in `manuscript_values.yaml`. RQ4 is closed as a **declared pre-specified deviation** from the registered wall-clock metric: a six-way Friedman on `evals_to_best` ($\chi^2 = 456.80$, $df = 5$, $p = 1.7 \times 10^{-96}$; §3.10), with wall-clock retained as secondary descriptive. The audit-time rows below are preserved verbatim as the registration trace.
+
 | Claim | Math | Test | Verdict |
 |-------|------|------|---------|
-| RQ1–RQ4 null hypotheses (pre-registered) | §3.10 prose; pre-registration documents | RQ1 tested by Friedman (✅); RQ2 (Pareto HV vs scalar) NOT tested — Track B not in canonical paper; RQ3 (Spearman correlations) NOT tested in current canonical run; RQ4 (wall-clock comparison) NOT formally tested as a Friedman | ⚠ partial (RQ1 ✅, RQ2/3/4 ❌) |
-| Cohen's $d_z$ for paired comparisons; Vargha-Delaney bands | §3.11 prose; cite Lakens 2013 | `analyze_phase1_conditions.py` computes VDA but **not Cohen's $d_z$ explicitly**; the methodology promises both | ⚠ test-only / partial |
+| RQ1–RQ4 null hypotheses (pre-registered) | §3.10 prose; pre-registration documents | RQ1 tested by Friedman (✅); RQ2 (Pareto HV vs scalar) NOT tested — Track B not in canonical paper; RQ3 (Spearman correlations) NOT tested in current canonical run; RQ4 (wall-clock comparison) NOT formally tested as a Friedman | ⚠ partial (RQ1 ✅, RQ2/3/4 ❌) · **SUPERSEDED 2026-06**: RQ2/3/4 closed, see closure note above + §3.10 |
+| Cohen's $d_z$ for paired comparisons; Vargha-Delaney bands | §3.11 prose; cite Lakens 2013 | `analyze_phase1_conditions.py` computes VDA but **not Cohen's $d_z$ explicitly**; the methodology promises both | ⚠ test-only / partial · **SUPERSEDED 2026-06**: $d_z$ now computed and pinned |
 
 ---
 
@@ -222,9 +226,9 @@ and the user-level research methodology it verifies lives at
 
 ### ⚠ partial / scope mismatch
 
-19. §3.8: Track B (HV/IGD+/Spacing) declared but canonical paper uses SA-only — declared but not exercised in canonical
-20. §§3.10–3.11: RQ2 (Pareto HV), RQ3 (Spearman correlations), RQ4 (wall-clock) not formally tested in the canonical run
-21. §3.11: Cohen's $d_z$ not computed (only VDA)
+19. §3.8: Track B (HV/IGD+/Spacing) declared but canonical paper uses SA-only — declared but not exercised in canonical · **SUPERSEDED 2026-06**: Track B now exercised in the multi-algo canonical (`quality_indicators.csv`; RQ2 unified HV)
+20. §§3.10–3.11: RQ2 (Pareto HV), RQ3 (Spearman correlations), RQ4 (wall-clock) not formally tested in the canonical run · **SUPERSEDED 2026-06**: closed (RQ4 as a declared deviation to `evals_to_best`; see §3.10)
+21. §3.11: Cohen's $d_z$ not computed (only VDA) · **SUPERSEDED 2026-06**: $d_z$ now computed and pinned
 22. ~~README abstract: "JFI parity preserved" too strong~~ — RESOLVED. README abstract now reads "JFI parity within measurement-meaningful tolerance ($\Delta \text{JFI} \le 0.0002$ at convergence)", mirroring §3.9's nuance.
 
 ### ⚠ test-on-legacy-only (canonical re-verification pending)

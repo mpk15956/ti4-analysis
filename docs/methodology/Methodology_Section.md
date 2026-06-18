@@ -205,7 +205,7 @@ LSAP provides constraint that global autocorrelation alone cannot achieve, and t
 
 ---
 
-## 3.10 Null hypotheses and pre-registered results
+## 3.10 Null hypotheses and results (pre-registered, with one declared deviation)
 
 **RQ1.** $H_0$: at the canonical hyperparameters and evaluation budget (500k), the distribution of optimized maps does not differ across the five ablation conditions (C0–C4) in the spatial metrics (Moran's I, LSAP) or in JFI. **Result:** Rejected — Friedman omnibus $\chi^2 = 349.82$ (Moran's I), $384.88$ (LSAP), $367.14$ (JFI) at $df = 4$, $p \ll 10^{-70}$ for every metric (§3.9). Headline pairwise C0$\to$C4: Vargha–Delaney $A \geq 0.88$ for all three metrics; Cohen's $d_z = +5.019$ (Moran's I), $+3.191$ (LSAP), $+1.109$ (JFI) — all "large" by Lakens (2013).
 

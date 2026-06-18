@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-submission gate. Three checks, all must pass:
+# Pre-submission gate. Four checks, all must pass:
 #
 #   1. No placeholder tokens (PENDING_MAIN_EXPERIMENT, ⚠ INSERT, [INSERT],
 #      "TBD", "5:5:3", "replace with your", "must be re-run") remain in docs/.
@@ -12,8 +12,12 @@
 #   3. Manuscript values match their source artifacts and appear in the
 #      manuscript prose. Implemented by tests/test_manuscript_values.py
 #      against tests/manuscript_values.yaml.
+#   4. The claim-evidence audit's now-closed §3.10-3.11 verdicts (RQ2/RQ3/RQ4,
+#      Cohen's d_z) carry their SUPERSEDED closure markers, so the dated audit
+#      cannot ship asserting a claim the manuscript contradicts (the live
+#      cross-file contradiction the June 2026 draft review caught).
 #
-# Exit 0 if all three pass; exit 1 otherwise. The combination is the
+# Exit 0 if all four pass; exit 1 otherwise. The combination is the
 # "no silent desync at submission" gate the audit (feedback_storage_passive_
 # verification_active.md) prescribed.
 set -euo pipefail
@@ -63,6 +67,31 @@ if pixi run pytest tests/test_manuscript_values.py -q --no-header 2>&1 | tail -3
 else
   echo "  FAIL — manifest validation failed; see test output above"
   OVERALL_OK=0
+fi
+echo
+
+# ── Check 4: no stale claim-evidence verdict contradicts §3.10 ─────────────
+# The May-2026 claim-evidence audit recorded RQ2/RQ3/RQ4 and Cohen's d_z as
+# untested; all are now closed in §3.9-3.10. The dated rows are kept as the
+# registration trace, but each now carries a SUPERSEDED closure marker. If a
+# stale "not formally tested" / "not computed (only VDA)" verdict ships WITHOUT
+# that marker, the audit contradicts the manuscript it ships beside, a live
+# cross-file contradiction, so fail the gate. Targeted at the one file with
+# standing (it is the registration trace cited for the RQ4 wall-clock origin).
+echo "── Pre-submission check 4: no stale audit verdict contradicts §3.10 ──"
+AUDIT="docs/audit/claim_evidence_audit.md"
+if [ ! -f "$AUDIT" ]; then
+  echo "  FAIL: $AUDIT missing"
+  OVERALL_OK=0
+else
+  STALE=$(grep -inE 'not formally tested|not computed \(only vda\)' "$AUDIT" | grep -vi 'SUPERSEDED' || true)
+  if [ -z "$STALE" ]; then
+    echo "  OK: every closed RQ / d_z verdict carries its SUPERSEDED closure marker"
+  else
+    echo "  FAIL: stale audit verdict(s) without a SUPERSEDED marker (contradicts §3.10):"
+    echo "$STALE" | sed 's/^/    /'
+    OVERALL_OK=0
+  fi
 fi
 echo
 
