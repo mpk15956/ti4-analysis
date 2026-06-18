@@ -25,6 +25,12 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(ROOT / "src"))
 
 CANONICAL_BUDGET = 500000
+# RQ4's six-way omnibus is read at 200k, NOT the 500k RQ1/RQ2 canonical: the
+# targeted NSGA-II evals_to_best fill (Option 1) covers budgets <=200k, so 200k
+# is the LARGEST budget where all six algorithms carry a real (non-sentinel)
+# evals_to_best. At 500k NSGA-II was not re-run, so RQ4 there is five-way
+# descriptive only. Decoupled from CANONICAL_BUDGET so RQ1/RQ2 stay 500k-canonical.
+RQ4_BUDGET = 200000
 SCALARS_DOMINATED = ["rs", "hc", "sga", "ts"]  # SA is the strong baseline, handled separately
 
 
@@ -45,7 +51,7 @@ def values():
         "track_b": gen.track_b(fd),
         "rq2": gen.rq2_all_budgets(fd, SCRIPTS),
         "rq3": gen.rq3_pooled(fd),
-        "rq4": gen.rq4_evals_to_best(fd, CANONICAL_BUDGET),
+        "rq4": gen.rq4_evals_to_best(fd, RQ4_BUDGET),
     }
 
 

@@ -150,7 +150,14 @@ def rq3_pooled(finalize_dir: Path) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--finalize-dir", type=Path, required=True)
-    p.add_argument("--budget", type=int, default=500000)
+    p.add_argument("--budget", type=int, default=500000,
+                   help="Canonical budget for RQ1/RQ2 semantics (metadata).")
+    p.add_argument("--rq4-budget", type=int, default=200000,
+                   help="Budget for the RQ4 six-way evals_to_best omnibus. Defaults "
+                        "to 200k: the targeted NSGA-II fill (Option 1) covers budgets "
+                        "<=200k, so 200k is the largest budget where all six algorithms "
+                        "carry a real (non-sentinel) evals_to_best. At 500k RQ4 is "
+                        "five-way descriptive only.")
     p.add_argument("--scripts-dir", type=Path, default=Path(__file__).resolve().parent)
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args()
@@ -160,12 +167,13 @@ def main() -> int:
         "provenance": {
             "finalize_dir": str(fd),
             "canonical_budget": args.budget,
+            "rq4_budget": args.rq4_budget,
             "note": "Derived from canonical Phase 6/7 artifacts; do not hand-edit.",
         },
         "track_b": track_b(fd),
         "rq2_by_budget": rq2_all_budgets(fd, args.scripts_dir),
         "rq3_pooled_spearman": rq3_pooled(fd),
-        "rq4_evals_to_best": rq4_evals_to_best(fd, args.budget),
+        "rq4_evals_to_best": rq4_evals_to_best(fd, args.rq4_budget),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n")

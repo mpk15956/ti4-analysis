@@ -17,7 +17,11 @@ FD=output/paper1_500k_finalize_phase67_20260606_101032
 APPTAINER="apptainer exec \
     --bind $PWD/output:/app/output --bind $PWD/src:/app/src --bind $PWD/scripts:/app/scripts \
     --pwd /app $SIF"
+# RQ4 reads the 200k six-way omnibus (largest budget where all six algorithms
+# carry a real evals_to_best after the targeted NSGA-II fill); RQ1/RQ2 stay
+# 500k-canonical. FD must point at a finalize dir whose stats_b200000 was built
+# from the spliced six-way results.csv (scripts/rq4_build_merged_results.py).
 $APPTAINER python /app/scripts/generate_manuscript_values.py \
-    --finalize-dir "/app/$FD" --budget 500000 \
+    --finalize-dir "/app/$FD" --budget 500000 --rq4-budget 200000 \
     --out "/app/$FD/manuscript_values_phase6.json"
 echo "GENVALUES DONE"
